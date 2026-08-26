@@ -1,0 +1,22 @@
+# IntelliJ
+.idea/
+*.iml
+*.iws
+*.ipr
+
+# Build output
+target/
+build/
+
+# OS
+.DS_Store
+
+# Local env / secrets
+.env
+*.local
+
+# Personal notes — design reasoning and learning, not part of the codebase
+CLAUDE.md
+initial.md
+zenith-idea-shelved.md
+LEARNING.md
