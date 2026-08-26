@@ -27,7 +27,7 @@ public class Booking {
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long id;
 
-    @Column(name = "request_id", nullable = false, unique = true, length = 40)
+    @Column(name = "request_id", nullable = false, length = 40)   // UNIQUE (user_id, request_id) — see V1__init.sql
     private String requestId;
 
     @Column(name = "user_id", nullable = false)

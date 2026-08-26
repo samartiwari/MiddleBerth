@@ -42,10 +42,10 @@ CREATE INDEX idx_seat_lookup
 CREATE TABLE booking (
     id            BIGSERIAL PRIMARY KEY,
 
-    -- The client sends this. UNIQUE is what actually stops a double booking
-    -- when someone double clicks or their phone resends the request — checking
-    -- first is only an optimisation, this constraint is the guarantee.
-    request_id    VARCHAR(40) NOT NULL UNIQUE,
+    -- The client generates this before sending, and reuses it on every retry
+    -- of the same click. Scoped to the user below, so one person's id can never
+    -- collide with another's and hand them somebody else's booking.
+    request_id    VARCHAR(40) NOT NULL,
 
     user_id       BIGINT      NOT NULL,
 
@@ -59,7 +59,11 @@ CREATE TABLE booking (
     seat_id       BIGINT      REFERENCES seat(id),   -- NULL when waitlisted
     status        VARCHAR(12) NOT NULL,              -- HELD / WAITLISTED
     waitlist_pos  INT,                               -- NULL unless WAITLISTED
-    created_at    TIMESTAMPTZ NOT NULL DEFAULT now()
+    created_at    TIMESTAMPTZ NOT NULL DEFAULT now(),
+
+    -- The guarantee against double booking on a retry. Checking first is only
+    -- an optimisation; this is what actually stops it.
+    UNIQUE (user_id, request_id)
 );
 
 -- Finds the next person in line when a berth is released, and lets us count

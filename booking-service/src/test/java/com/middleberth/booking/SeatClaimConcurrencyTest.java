@@ -3,6 +3,7 @@ package com.middleberth.booking;
 import com.middleberth.booking.domain.Seat;
 import com.middleberth.booking.domain.SeatStatus;
 import com.middleberth.booking.domain.Train;
+import com.middleberth.booking.repository.BookingRepository;
 import com.middleberth.booking.repository.SeatRepository;
 import com.middleberth.booking.repository.TrainRepository;
 import org.junit.jupiter.api.Test;
@@ -35,6 +36,7 @@ class SeatClaimConcurrencyTest {
     private static final String CLASS = "3A";
 
     @Autowired SeatRepository seatRepo;
+    @Autowired BookingRepository bookingRepo;
     @Autowired TrainRepository trainRepo;
     @Autowired TransactionTemplate tx;
 
@@ -92,6 +94,7 @@ class SeatClaimConcurrencyTest {
 
     private Long seedTrainWith24FreeSeats() {
         return tx.execute(status -> {
+            bookingRepo.deleteAllInBatch();   // bookings reference seats — clear them first
             seatRepo.deleteAllInBatch();
             trainRepo.deleteAllInBatch();
             Train train = trainRepo.save(new Train("12951", "Mumbai Rajdhani"));
