@@ -1,4 +1,4 @@
-package com.middleberth.booking.service;
+package com.middleberth.booking.exception;
 
 public class TrainNotFoundException extends RuntimeException {
 

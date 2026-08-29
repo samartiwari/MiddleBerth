@@ -4,6 +4,7 @@ import com.middleberth.booking.domain.Booking;
 import com.middleberth.booking.domain.BookingStatus;
 import com.middleberth.booking.domain.Seat;
 import com.middleberth.booking.dto.BookingCommand;
+import com.middleberth.booking.exception.TrainNotFoundException;
 import com.middleberth.booking.dto.BookingResult;
 import com.middleberth.booking.repository.BookingRepository;
 import com.middleberth.booking.repository.SeatRepository;
