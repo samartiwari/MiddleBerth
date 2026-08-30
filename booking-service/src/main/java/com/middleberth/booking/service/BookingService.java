@@ -49,6 +49,22 @@ public class BookingService {
         }
     }
 
+    /**
+     * Checked at the door, before the request is queued. Rejecting a nonsense
+     * train here costs one indexed lookup; accepting it means the consumer
+     * silently drops it later and the user polls PENDING forever.
+     */
+    public void assertTrainExists(String trainNumber) {
+        if (trainRepo.findByNumber(trainNumber).isEmpty()) {
+            throw new TrainNotFoundException(trainNumber);
+        }
+    }
+
+    /** What the page polls for. Empty until the consumer has processed it. */
+    public Optional<BookingResult> outcomeOf(Long userId, String requestId) {
+        return bookingRepo.findByUserIdAndRequestId(userId, requestId).map(this::toResult);
+    }
+
     //changes the seat number 42 -> 32-B like a user friendly manner
     private BookingResult toResult(Booking booking) {
         if (booking.getStatus() == BookingStatus.WAITLISTED) {
