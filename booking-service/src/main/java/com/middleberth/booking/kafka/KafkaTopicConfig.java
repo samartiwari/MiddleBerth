@@ -23,5 +23,18 @@ public class KafkaTopicConfig {
     @Bean
     NewTopic bookingRequests() {
         return new NewTopic(BOOKING_REQUESTS, 15, (short) 1);
+    }
+
+    //Topic name
+    public static final String SEAT_COUNTS = "seat-counts";
+
+    /**
+     * Availability updates for search-service. Same key as booking-requests, so
+     * updates for one train stay in order — otherwise a stale count could
+     * overwrite a fresher one.
+     */
+    @Bean
+    NewTopic seatCounts() {
+        return new NewTopic(SEAT_COUNTS, 15, (short) 1);
     } //name,partition,replicas
 }

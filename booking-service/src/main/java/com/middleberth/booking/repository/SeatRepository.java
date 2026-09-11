@@ -1,6 +1,7 @@
 package com.middleberth.booking.repository;
 
 import com.middleberth.booking.domain.Seat;
+import com.middleberth.booking.domain.SeatStatus;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
@@ -40,4 +41,16 @@ public interface SeatRepository extends JpaRepository<Seat, Long> {
     Optional<Seat> claimFreeSeat(@Param("trainId") Long trainId,
                                  @Param("travelDate") LocalDate travelDate,
                                  @Param("coachClass") String coachClass);
+
+    /**
+     * How many berths are still free. Published to search-service after every
+     * claim so the availability page never has to ask this database itself.
+     *
+     * Hits idx_seat_lookup (train_id, travel_date, coach_class, status) exactly,
+     * so it counts index entries and never touches the table.
+     */
+    int countByTrainIdAndTravelDateAndCoachClassAndStatus(Long trainId,
+                                                          LocalDate travelDate,
+                                                          String coachClass,
+                                                          SeatStatus status);
 }
