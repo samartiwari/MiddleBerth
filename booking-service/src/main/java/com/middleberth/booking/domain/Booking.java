@@ -65,6 +65,10 @@ public class Booking {
     @Column(name = "paid_at")
     private Instant paidAt;
 
+    /** When Pay Now created an order. A hold with a payment under way gets extra time. */
+    @Column(name = "payment_started_at")
+    private Instant paymentStartedAt;
+
     public static Booking held(String requestId, Long userId, Long trainId,
                                LocalDate travelDate, String coachClass, Long seatId, Instant payBy) {
         Booking b = base(requestId, userId, trainId, travelDate, coachClass);
@@ -111,13 +115,47 @@ public class Booking {
         payBy = null;
     }
 
-    /** Deadline passed with no payment. */
+    /**
+     * Deadline passed with no payment.
+     *
+     * payBy is kept, not cleared: if money turns up later, it is judged against
+     * this deadline. Paid before it means we were slow, and we try to honour it.
+     * Paid after it means it really was late, and it is refunded.
+     */
     public void expire() {
         if (!status.isHold()) {
             throw new IllegalStateException("Only a hold can expire, this one is " + status);
         }
         status = BookingStatus.EXPIRED;
-        payBy = null;
+    }
+
+    public void markPaymentStarted(Instant at) {
+        if (paymentStartedAt == null) {
+            paymentStartedAt = at;
+        }
+    }
+
+    /** A payment made in time arrived after the hold was released, and a berth was still free. */
+    public void reinstateWithBerth(Long berthId, Instant paidAt) {
+        requireExpired();
+        this.seatId = berthId;
+        this.waitlistPos = null;
+        this.status = BookingStatus.CONFIRMED;
+        this.paidAt = paidAt;
+    }
+
+    /** A payment made in time arrived after the waitlist hold was released, and there was room. */
+    public void reinstateOnWaitlist(int position, Instant paidAt) {
+        requireExpired();
+        this.waitlistPos = position;
+        this.status = BookingStatus.WAITLISTED;
+        this.paidAt = paidAt;
+    }
+
+    private void requireExpired() {
+        if (status != BookingStatus.EXPIRED) {
+            throw new IllegalStateException("Only an expired booking can be reinstated, this one is " + status);
+        }
     }
 
     /**

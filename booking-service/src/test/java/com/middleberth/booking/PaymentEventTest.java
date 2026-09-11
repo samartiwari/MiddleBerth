@@ -109,8 +109,9 @@ class PaymentEventTest {
     }
 
     /**
-     * Money that arrives after the hold was released is recognised as TOO_LATE and
-     * noted for a refund (5d), and the payments behind it carry on.
+     * Money that arrives after the deadline is refunded instead of confirmed, and
+     * the payments behind it carry on. What happens to the refund itself is
+     * LatePaymentTest's job; this one is about the queue not getting stuck.
      *
      * Note what this does NOT prove: if apply() threw instead, this test would still
      * pass. Spring Kafka's default error handler retries a failing message a few
@@ -121,17 +122,19 @@ class PaymentEventTest {
     @Test
     void a_late_payment_is_recognised_and_the_next_one_still_goes_through() {
         book("LATE", 1);
+        Instant tooLate = bookingRepo.findByUserIdAndRequestId(1L, "LATE").orElseThrow()
+                .getPayBy().plus(Duration.ofMinutes(1));
         expiryJob.releaseExpired(Instant.now().plus(Duration.ofMinutes(10)));
         assertThat(bookingRepo.findByUserIdAndRequestId(1L, "LATE").orElseThrow().getStatus())
                 .isEqualTo(BookingStatus.EXPIRED);
         book("ONTIME", 2);
 
-        publish("1|LATE", paid(1, "LATE"));
+        publish("1|LATE", paidAt(1, "LATE", tooLate));
         publish("2|ONTIME", paid(2, "ONTIME"));
 
         awaitStatus("ONTIME", 2, BookingStatus.CONFIRMED);
         assertThat(bookingRepo.findByUserIdAndRequestId(1L, "LATE").orElseThrow().getStatus())
-                .as("still expired — refund is 5d").isEqualTo(BookingStatus.EXPIRED);
+                .as("still expired — the money goes back instead").isEqualTo(BookingStatus.EXPIRED);
     }
 
     // ---------- helpers ----------
@@ -141,9 +144,13 @@ class PaymentEventTest {
     }
 
     private String paid(long userId, String requestId) {
+        return paidAt(userId, requestId, Instant.now());
+    }
+
+    private String paidAt(long userId, String requestId, Instant paidAt) {
         return """
                 {"type":"PAID","userId":%d,"requestId":"%s","orderId":"order_x","paymentId":"pay_x",\
-                "amountPaise":240000,"paidAt":"%s"}""".formatted(userId, requestId, Instant.now());
+                "amountPaise":240000,"paidAt":"%s"}""".formatted(userId, requestId, paidAt);
     }
 
     private void publish(String key, String json) {

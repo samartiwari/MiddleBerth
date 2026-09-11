@@ -53,7 +53,8 @@ public class HoldReleaser {
     @Transactional
     public Batch releaseBatch(Instant now) {
         Instant cutoff = now.minus(holds.cushion());
-        List<Booking> expired = bookingRepo.lockExpiredHolds(cutoff, holds.batchSize());
+        Instant graceCutoff = cutoff.minus(holds.paymentGrace());
+        List<Booking> expired = bookingRepo.lockExpiredHolds(cutoff, graceCutoff, holds.batchSize());
 
         Set<FreedBerths> freed = new HashSet<>();
 

@@ -42,6 +42,12 @@ public class Payment {
     @Column(name = "paid_at")
     private Instant paidAt;
 
+    @Column(name = "refund_id", length = 40)
+    private String refundId;
+
+    @Column(name = "refunded_at")
+    private Instant refundedAt;
+
     @Column(name = "created_at", nullable = false, insertable = false, updatable = false)
     private OffsetDateTime createdAt;
 
@@ -68,7 +74,20 @@ public class Payment {
         this.status = PaymentStatus.PAID;
     }
 
-    public boolean isPaid() {
-        return status == PaymentStatus.PAID;
+    /**
+     * Already dealt with — a webhook arriving now changes nothing.
+     *
+     * REFUNDED counts too. Razorpay can redeliver a "captured" webhook long after
+     * we have given the money back, and without this it would be marked PAID again
+     * and announced again, undoing the refund in our books.
+     */
+    public boolean isSettled() {
+        return status != PaymentStatus.CREATED;
+    }
+
+    public void markRefunded(String refundId, Instant at) {
+        this.refundId = refundId;
+        this.refundedAt = at;
+        this.status = PaymentStatus.REFUNDED;
     }
 }

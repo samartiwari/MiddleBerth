@@ -63,7 +63,7 @@ public class CapturedPaymentHandler {
         }
 
         Payment payment = found.get();
-        if (payment.isPaid()) {
+        if (payment.isSettled()) {
             return WebhookOutcome.DUPLICATE;
         }
         if (entity.amount() != payment.getAmountPaise()) {

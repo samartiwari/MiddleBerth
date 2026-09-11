@@ -20,6 +20,7 @@ public class PayNowService {
     private final BookingRepository bookingRepo;
     private final PaymentClient paymentClient;
     private final FareSettings fares;
+    private final BookingPayments payments;
 
     /**
      * The user clicked Pay Now. booking-service is the one that knows whether this
@@ -50,6 +51,11 @@ public class PayNowService {
 
         long amount = fares.forClass(booking.getCoachClass());
         PaymentOrder order = paymentClient.createOrder(userId, requestId, amount);
+
+        // Someone is paying now — the expiry job will give this hold extra time.
+        // After the order, not before: if payment-service were down there would be
+        // no payment in progress to protect.
+        payments.markPaymentStarted(userId, requestId, Instant.now());
         return new PayNowResponse(order.orderId(), order.amountPaise(), order.currency(),
                 order.keyId(), booking.getPayBy());
     }

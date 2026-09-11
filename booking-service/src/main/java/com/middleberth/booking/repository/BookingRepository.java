@@ -40,16 +40,21 @@ public interface BookingRepository extends JpaRepository<Booking, Long> {
      *
      * It also means a hold that is being paid for right now (locked by the payment)
      * is simply skipped rather than expired underneath it.
+     *
+     * A hold where Pay Now was clicked has to be past graceCutoff too — it gets a
+     * few extra minutes, because the money may be on its way.
      */
     @Query(value = """
             SELECT * FROM booking
             WHERE status IN ('HELD', 'WAITLIST_HELD')
               AND pay_by < :cutoff
+              AND (payment_started_at IS NULL OR pay_by < :graceCutoff)
             ORDER BY pay_by
             LIMIT :batchSize
             FOR UPDATE SKIP LOCKED
             """, nativeQuery = true)
     List<Booking> lockExpiredHolds(@Param("cutoff") Instant cutoff,
+                                   @Param("graceCutoff") Instant graceCutoff,
                                    @Param("batchSize") int batchSize);
 
     /**

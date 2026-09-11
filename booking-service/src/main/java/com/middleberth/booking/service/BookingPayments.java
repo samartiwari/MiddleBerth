@@ -6,6 +6,7 @@ import com.middleberth.booking.domain.SeatStatus;
 import com.middleberth.booking.dto.BookingResult;
 import com.middleberth.booking.repository.BookingRepository;
 import com.middleberth.booking.repository.SeatRepository;
+import com.middleberth.booking.repository.WaitlistCounter;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -25,18 +26,39 @@ public class BookingPayments {
 
     private final BookingRepository bookingRepo;
     private final SeatRepository seatRepo;
+    private final WaitlistCounter waitlistCounter;
 
-    /** What a "paid" event did. None of these are errors — see apply(). */
+    /**
+     * What a "paid" event did.
+     *
+     * The rule for the ones marked refund: if we took someone's money and cannot
+     * give them anything for it, we give it back.
+     */
     public enum PaymentApplied {
-        CONFIRMED,
-        WAITLISTED,
+        CONFIRMED(false),
+        WAITLISTED(false),
+        /** Paid before the deadline, reached us after the hold was released, and there was still room. */
+        HONOURED_LATE(false),
         /** A second "paid" for the same booking. payment-service may announce twice. */
-        ALREADY_PAID,
-        /** The hold expired before the money arrived. What to do about it is 5d. */
-        TOO_LATE,
+        ALREADY_PAID(false),
+
+        /** Paid after the deadline. */
+        PAID_AFTER_DEADLINE(true),
+        /** Paid in time, but by the time it reached us every berth and waitlist slot was gone. */
+        NOTHING_LEFT(true),
         /** Regretted — there was never anything to pay for. */
-        NOT_PAYABLE,
-        UNKNOWN_BOOKING
+        NOT_PAYABLE(true),
+        UNKNOWN_BOOKING(true);
+
+        private final boolean refund;
+
+        PaymentApplied(boolean refund) {
+            this.refund = refund;
+        }
+
+        public boolean refund() {
+            return refund;
+        }
     }
 
     /**
@@ -84,8 +106,52 @@ public class BookingPayments {
                 yield PaymentApplied.WAITLISTED;
             }
             case CONFIRMED, WAITLISTED -> PaymentApplied.ALREADY_PAID;
-            case EXPIRED -> PaymentApplied.TOO_LATE;
+            case EXPIRED -> lateArrival(booking, paidAt);
             case REGRETTED -> PaymentApplied.NOT_PAYABLE;
         };
+    }
+
+    /**
+     * Money arrived for a hold that has already been released.
+     *
+     * From initial.md: judge by when they PAID, not when we found out. The deadline
+     * is still on the booking — expire() keeps it for exactly this.
+     *
+     *   paid after the deadline   -> it really was late. Refund.
+     *   paid before it            -> we were the slow ones. Honour it if we still
+     *                                can: a free berth first, else a waitlist slot.
+     *                                Only if both are gone, refund.
+     *
+     * A free berth goes to them even if they were on the waitlist before — if one
+     * is free, nobody is waiting for it (new bookings take free berths before anyone
+     * joins the waitlist), so they are not jumping anyone.
+     */
+    private PaymentApplied lateArrival(Booking booking, Instant paidAt) {
+        if (paidAt == null || paidAt.isAfter(booking.getPayBy())) {
+            return PaymentApplied.PAID_AFTER_DEADLINE;
+        }
+
+        var berth = seatRepo.claimFreeSeat(booking.getTrainId(), booking.getTravelDate(), booking.getCoachClass());
+        if (berth.isPresent()) {
+            berth.get().setStatus(SeatStatus.CONFIRMED);
+            booking.reinstateWithBerth(berth.get().getId(), paidAt);
+            return PaymentApplied.HONOURED_LATE;
+        }
+
+        var slot = waitlistCounter.take(booking.getTrainId(), booking.getTravelDate(), booking.getCoachClass());
+        if (slot.isPresent()) {
+            booking.reinstateOnWaitlist(slot.get(), paidAt);
+            return PaymentApplied.HONOURED_LATE;
+        }
+        return PaymentApplied.NOTHING_LEFT;
+    }
+
+    /**
+     * Pay Now created an order for this hold. From now on the expiry job gives it
+     * extra time instead of releasing it in the middle of someone paying.
+     */
+    @Transactional
+    public void markPaymentStarted(Long userId, String requestId, Instant at) {
+        bookingRepo.lockByUserIdAndRequestId(userId, requestId).ifPresent(b -> b.markPaymentStarted(at));
     }
 }
