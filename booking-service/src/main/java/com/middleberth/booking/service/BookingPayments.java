@@ -26,6 +26,19 @@ public class BookingPayments {
     private final BookingRepository bookingRepo;
     private final SeatRepository seatRepo;
 
+    /** What a "paid" event did. None of these are errors — see apply(). */
+    public enum PaymentApplied {
+        CONFIRMED,
+        WAITLISTED,
+        /** A second "paid" for the same booking. payment-service may announce twice. */
+        ALREADY_PAID,
+        /** The hold expired before the money arrived. What to do about it is 5d. */
+        TOO_LATE,
+        /** Regretted — there was never anything to pay for. */
+        NOT_PAYABLE,
+        UNKNOWN_BOOKING
+    }
+
     /**
      * The booking row is locked first. The expiry job uses SKIP LOCKED, so while
      * this holds the lock the expiry job steps over this booking — and if the
@@ -46,5 +59,33 @@ public class BookingPayments {
             return BookingResult.confirmed(seatRepo.findById(booking.getSeatId()).orElseThrow().label());
         }
         return BookingResult.waitlisted(booking.getWaitlistPos());
+    }
+
+    /**
+     * What the payment-events consumer calls. Unlike markPaid it never throws for
+     * an ordinary situation — a duplicate, a late payment, an unknown booking —
+     * because an exception in a Kafka listener makes it retry the same message, and
+     * a message that can never succeed would block every payment behind it.
+     */
+    @Transactional
+    public PaymentApplied apply(Long userId, String requestId, Instant paidAt) {
+        var found = bookingRepo.lockByUserIdAndRequestId(userId, requestId);
+        if (found.isEmpty()) {
+            return PaymentApplied.UNKNOWN_BOOKING;
+        }
+        Booking booking = found.get();
+        return switch (booking.getStatus()) {
+            case HELD, WAITLIST_HELD -> {
+                booking.markPaid(paidAt);
+                if (booking.getStatus() == BookingStatus.CONFIRMED) {
+                    seatRepo.findById(booking.getSeatId()).orElseThrow().setStatus(SeatStatus.CONFIRMED);
+                    yield PaymentApplied.CONFIRMED;
+                }
+                yield PaymentApplied.WAITLISTED;
+            }
+            case CONFIRMED, WAITLISTED -> PaymentApplied.ALREADY_PAID;
+            case EXPIRED -> PaymentApplied.TOO_LATE;
+            case REGRETTED -> PaymentApplied.NOT_PAYABLE;
+        };
     }
 }

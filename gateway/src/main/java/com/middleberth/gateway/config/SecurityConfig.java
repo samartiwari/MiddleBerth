@@ -26,6 +26,7 @@ public class SecurityConfig {
                 .authorizeExchange(ex -> ex
                         .pathMatchers("/auth/**").permitAll()
                         .pathMatchers("/api/trains/**").permitAll()
+                        .pathMatchers("/webhooks/razorpay").permitAll()   // trusted by its signature, not a token
                         .pathMatchers("/actuator/health/**").permitAll()
                         .pathMatchers("/api/bookings/**").authenticated()
                         .anyExchange().denyAll())

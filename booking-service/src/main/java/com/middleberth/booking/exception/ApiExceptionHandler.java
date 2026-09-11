@@ -1,5 +1,6 @@
 package com.middleberth.booking.exception;
 
+import com.middleberth.booking.payment.PaymentUnavailableException;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.converter.HttpMessageNotReadableException;
 import org.springframework.web.bind.MethodArgumentNotValidException;
@@ -37,6 +38,26 @@ public class ApiExceptionHandler {
     @ResponseStatus(HttpStatus.UNAUTHORIZED)
     public ApiError missingIdentity(MissingRequestHeaderException e) {
         return new ApiError("UNAUTHENTICATED", "Missing " + e.getHeaderName() + " — requests must come through the gateway");
+    }
+
+    @ExceptionHandler(BookingNotFoundException.class)
+    @ResponseStatus(HttpStatus.NOT_FOUND)
+    public ApiError bookingNotFound(BookingNotFoundException e) {
+        return new ApiError("BOOKING_NOT_FOUND", e.getMessage());
+    }
+
+    /** Already paid, expired, regretted, or past its deadline. */
+    @ExceptionHandler(NotPayableException.class)
+    @ResponseStatus(HttpStatus.CONFLICT)
+    public ApiError notPayable(NotPayableException e) {
+        return new ApiError("NOT_PAYABLE", e.getMessage());
+    }
+
+    /** payment-service is down or too slow. The hold is untouched — try again. */
+    @ExceptionHandler(PaymentUnavailableException.class)
+    @ResponseStatus(HttpStatus.SERVICE_UNAVAILABLE)
+    public ApiError paymentUnavailable(PaymentUnavailableException e) {
+        return new ApiError("PAYMENT_UNAVAILABLE", "Could not start the payment — your hold is safe, try again");
     }
 
     /** Malformed JSON, or a date that isn't a date. */

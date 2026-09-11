@@ -18,7 +18,7 @@ import java.util.concurrent.ConcurrentLinkedQueue;
  */
 final class StubBackend {
 
-    record Seen(String method, String path, String userIdHeader) {
+    record Seen(String method, String path, String userIdHeader, String body) {
     }
 
     private final DisposableServer server;
@@ -27,15 +27,15 @@ final class StubBackend {
     private StubBackend() {
         this.server = HttpServer.create()
                 .port(0)
-                .handle((req, res) -> {
-                    seen.add(new Seen(req.method().name(), req.uri(),
-                            req.requestHeaders().get("X-User-Id")));
-                    return req.receive().then(
-                            res.status(200)
-                               .header("Content-Type", "application/json")
-                               .sendString(Mono.just("{\"stub\":true}"))
-                               .then());
-                })
+                .handle((req, res) -> req.receive().aggregate().asString().defaultIfEmpty("")
+                        .flatMap(body -> {
+                            seen.add(new Seen(req.method().name(), req.uri(),
+                                    req.requestHeaders().get("X-User-Id"), body));
+                            return res.status(200)
+                                      .header("Content-Type", "application/json")
+                                      .sendString(Mono.just("{\"stub\":true}"))
+                                      .then();
+                        }))
                 .bindNow();
     }
 

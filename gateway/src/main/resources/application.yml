@@ -8,6 +8,7 @@ middleberth:
   # Overridden by env vars in Docker, where services are reached by name.
   booking-url: ${BOOKING_URL:http://localhost:8080}
   search-url: ${SEARCH_URL:http://localhost:8081}
+  payment-url: ${PAYMENT_URL:http://localhost:8083}
   jwt:
     # HS256 needs at least 32 bytes. The default is for dev and tests ONLY —
     # anywhere real, JWT_SECRET must be set, or anyone can mint tokens.
@@ -62,3 +63,30 @@ spring:
                     redis-rate-limiter.burstCapacity: 10
                     redis-rate-limiter.requestedTokens: 1
                     key-resolver: "#{@userKeyResolver}"
+
+            # Pay Now. Same rule as booking — needs a token, limited per user.
+            - id: booking-pay
+              uri: ${middleberth.booking-url}
+              predicates:
+                - Path=/api/bookings/*/pay
+                - Method=POST
+              filters:
+                - name: RequestRateLimiter
+                  args:
+                    redis-rate-limiter.replenishRate: 1
+                    redis-rate-limiter.burstCapacity: 3
+                    redis-rate-limiter.requestedTokens: 1
+                    key-resolver: "#{@userKeyResolver}"
+
+            # Razorpay telling us a payment went through. No login — Razorpay has no
+            # token. It is trusted because payment-service checks the signature, and
+            # the gateway passes the body through byte for byte so that still works.
+            #
+            # payment-service's /internal/** has no route here on purpose. Only
+            # booking-service may create orders, and it reaches payment-service
+            # directly on the internal network.
+            - id: razorpay-webhook
+              uri: ${middleberth.payment-url}
+              predicates:
+                - Path=/webhooks/razorpay
+                - Method=POST

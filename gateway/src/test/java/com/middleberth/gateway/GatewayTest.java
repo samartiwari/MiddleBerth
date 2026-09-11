@@ -35,6 +35,7 @@ class GatewayTest {
 
     static final StubBackend BOOKING = StubBackend.start();
     static final StubBackend SEARCH = StubBackend.start();
+    static final StubBackend PAYMENT = StubBackend.start();
 
     /** Rate limit buckets live in Redis for the whole run, so every test gets fresh users. */
     private static final AtomicLong NEXT_USER = new AtomicLong(100_000);
@@ -43,6 +44,7 @@ class GatewayTest {
     static void routes(DynamicPropertyRegistry r) {
         r.add("middleberth.booking-url", BOOKING::url);
         r.add("middleberth.search-url", SEARCH::url);
+        r.add("middleberth.payment-url", PAYMENT::url);
     }
 
     @Autowired WebTestClient web;
@@ -51,6 +53,7 @@ class GatewayTest {
     void clear() {
         BOOKING.clear();
         SEARCH.clear();
+        PAYMENT.clear();
     }
 
     // ---------- where to ----------
@@ -156,6 +159,65 @@ class GatewayTest {
 
         assertThat(post(alice)).as("alice is over her limit").isEqualTo(HttpStatus.TOO_MANY_REQUESTS);
         assertThat(post(bob).is2xxSuccessful()).as("bob, same IP, is unaffected").isTrue();
+    }
+
+    // ---------- payments (5c) ----------
+
+    @Test
+    void pay_now_needs_a_login() {
+        web.post().uri("/api/bookings/A7X2/pay").exchange().expectStatus().isUnauthorized();
+        assertThat(BOOKING.seen()).isEmpty();
+    }
+
+    @Test
+    void pay_now_goes_to_booking_and_says_who_is_paying() {
+        String token = tokenFor(5512);
+
+        web.post().uri("/api/bookings/A7X2/pay").headers(h -> h.setBearerAuth(token))
+           .exchange().expectStatus().isOk();
+
+        assertThat(BOOKING.seen()).singleElement().satisfies(seen -> {
+            assertThat(seen.path()).isEqualTo("/api/bookings/A7X2/pay");
+            assertThat(seen.userIdHeader()).isEqualTo("5512");
+        });
+    }
+
+    @Test
+    void the_razorpay_webhook_needs_no_login_and_goes_to_payment() {
+        web.post().uri("/webhooks/razorpay").contentType(APPLICATION_JSON).bodyValue("{}")
+           .exchange().expectStatus().isOk();
+
+        assertThat(PAYMENT.seen()).extracting(StubBackend.Seen::path).containsExactly("/webhooks/razorpay");
+        assertThat(BOOKING.seen()).isEmpty();
+    }
+
+    /**
+     * payment-service checks an HMAC over the exact bytes Razorpay sent. If the
+     * gateway reformatted the JSON on the way through — even one space — every real
+     * webhook would fail its signature check.
+     */
+    @Test
+    void the_webhook_body_reaches_payment_service_byte_for_byte() {
+        String oddlySpaced = "{ \"event\" :  \"payment.captured\",\"payload\":{ \"x\" : 1 } }";
+
+        web.post().uri("/webhooks/razorpay").contentType(APPLICATION_JSON).bodyValue(oddlySpaced)
+           .exchange().expectStatus().isOk();
+
+        assertThat(PAYMENT.seen()).singleElement()
+                .extracting(StubBackend.Seen::body).isEqualTo(oddlySpaced);
+    }
+
+    /** Only booking-service may create orders. There is no way in from outside. */
+    @Test
+    void payment_services_internal_endpoints_cannot_be_reached_from_outside() {
+        String token = tokenFor(5512);
+
+        web.post().uri("/internal/orders").headers(h -> h.setBearerAuth(token))
+           .contentType(APPLICATION_JSON).bodyValue("{\"userId\":5512,\"requestId\":\"X\",\"amountPaise\":1}")
+           .exchange().expectStatus().value(status ->
+                   assertThat(status).as("denied, whatever the token").isIn(401, 403, 404));
+
+        assertThat(PAYMENT.seen()).as("never reached").isEmpty();
     }
 
     // ---------- helpers ----------

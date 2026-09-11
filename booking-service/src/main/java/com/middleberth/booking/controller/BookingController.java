@@ -3,8 +3,10 @@ package com.middleberth.booking.controller;
 import com.middleberth.booking.dto.BookingAccepted;
 import com.middleberth.booking.dto.BookingRequest;
 import com.middleberth.booking.dto.BookingStatusResponse;
+import com.middleberth.booking.dto.PayNowResponse;
 import com.middleberth.booking.kafka.BookingPublisher;
 import com.middleberth.booking.service.BookingService;
+import com.middleberth.booking.service.PayNowService;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.HttpStatus;
@@ -27,6 +29,7 @@ public class BookingController {
 
     private final BookingPublisher publisher;
     private final BookingService bookingService;
+    private final PayNowService payNowService;
 
     /**
      * Does almost nothing on purpose: validate, drop a message on the queue,
@@ -57,5 +60,15 @@ public class BookingController {
         return bookingService.outcomeOf(userId, requestId)
                 .map(BookingStatusResponse::of)
                 .orElseGet(BookingStatusResponse::pending);
+    }
+
+    /**
+     * Pay Now. Returns what the browser needs to open Razorpay's checkout. The
+     * payment itself happens on Razorpay's page; we hear about it by webhook.
+     */
+    @PostMapping("/{requestId}/pay")
+    public PayNowResponse pay(@RequestHeader(USER_ID) Long userId,
+                              @PathVariable String requestId) {
+        return payNowService.payNow(userId, requestId);
     }
 }
