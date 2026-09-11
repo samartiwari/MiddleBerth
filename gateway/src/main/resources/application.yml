@@ -1,0 +1,64 @@
+# The only service the outside world talks to. Checks who you are, throws away
+# excess traffic, and sends the rest to the right place.
+
+server:
+  port: 8000   # locally. booking is on 8080, search on 8081. In Docker all are 8080.
+
+middleberth:
+  # Overridden by env vars in Docker, where services are reached by name.
+  booking-url: ${BOOKING_URL:http://localhost:8080}
+  search-url: ${SEARCH_URL:http://localhost:8081}
+  jwt:
+    # HS256 needs at least 32 bytes. The default is for dev and tests ONLY —
+    # anywhere real, JWT_SECRET must be set, or anyone can mint tokens.
+    secret: ${JWT_SECRET:dev-only-secret-change-me-it-must-be-32-bytes-or-more}
+    ttl-minutes: 60
+
+spring:
+  application:
+    name: gateway
+  cloud:
+    gateway:
+      server:
+        webflux:
+          routes:
+
+            # Browsing. Public, and deliberately NOT rate limited per client.
+            # Indian mobile carriers put thousands of users behind one IP, so any
+            # IP limit tight enough to stop a bot locks out a college hostel. Search
+            # reads one Redis key and takes nothing from anyone — it is protected by
+            # being cheap, and by adding pods under load, not by turning people away.
+            - id: search
+              uri: ${middleberth.search-url}
+              predicates:
+                - Path=/api/trains/**
+
+            # Booking. Needs a token, and is limited PER USER — so a hundred people
+            # on one college wifi each get their own bucket. This is where fairness
+            # matters: one person must not be able to take 500 places in the queue.
+            - id: booking-create
+              uri: ${middleberth.booking-url}
+              predicates:
+                - Path=/api/bookings
+                - Method=POST
+              filters:
+                - name: RequestRateLimiter
+                  args:
+                    redis-rate-limiter.replenishRate: 1     # tokens added per second
+                    redis-rate-limiter.burstCapacity: 3     # most it can hold
+                    redis-rate-limiter.requestedTokens: 1
+                    key-resolver: "#{@userKeyResolver}"
+
+            # Polling for the answer. Looser — the page asks every second or two.
+            - id: booking-poll
+              uri: ${middleberth.booking-url}
+              predicates:
+                - Path=/api/bookings/**
+                - Method=GET
+              filters:
+                - name: RequestRateLimiter
+                  args:
+                    redis-rate-limiter.replenishRate: 5
+                    redis-rate-limiter.burstCapacity: 10
+                    redis-rate-limiter.requestedTokens: 1
+                    key-resolver: "#{@userKeyResolver}"

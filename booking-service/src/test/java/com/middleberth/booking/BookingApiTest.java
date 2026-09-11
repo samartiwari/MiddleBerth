@@ -13,6 +13,7 @@ import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.test.web.client.TestRestTemplate;
 import org.springframework.context.annotation.Import;
 import org.springframework.http.*;
+import org.springframework.http.HttpMethod;
 import org.springframework.transaction.support.TransactionTemplate;
 
 import java.time.Duration;
@@ -57,13 +58,29 @@ class BookingApiTest {
     }
 
     private ResponseEntity<String> post(String requestId, long userId, String trainNumber) {
-        HttpHeaders headers = new HttpHeaders();
+        HttpHeaders headers = asUser(userId);
         headers.setContentType(MediaType.APPLICATION_JSON);
         String json = """
-                {"requestId":"%s","userId":%d,"trainNumber":"%s",
+                {"requestId":"%s","trainNumber":"%s",
                  "travelDate":"2026-08-25","coachClass":"3A"}
-                """.formatted(requestId, userId, trainNumber);
+                """.formatted(requestId, trainNumber);
         return http.postForEntity("/api/bookings", new HttpEntity<>(json, headers), String.class);
+    }
+
+    /**
+     * These tests call booking-service directly, so they play the gateway's part
+     * and set X-User-Id themselves — exactly what the gateway does after checking
+     * the token.
+     */
+    private HttpHeaders asUser(long userId) {
+        HttpHeaders headers = new HttpHeaders();
+        headers.set("X-User-Id", String.valueOf(userId));
+        return headers;
+    }
+
+    private ResponseEntity<String> poll(String requestId, long userId) {
+        return http.exchange("/api/bookings/{id}", HttpMethod.GET,
+                new HttpEntity<>(asUser(userId)), String.class, requestId);
     }
 
     /** Polls like the real page would, until the answer stops being PENDING. */
@@ -71,7 +88,7 @@ class BookingApiTest {
         long deadline = System.nanoTime() + timeout.toNanos();
         String body = null;
         while (System.nanoTime() < deadline) {
-            body = http.getForObject("/api/bookings/{id}?userId={u}", String.class, requestId, userId);
+            body = poll(requestId, userId).getBody();
             if (body != null && !body.contains("PENDING")) return body;
             try { Thread.sleep(20); } catch (InterruptedException e) { Thread.currentThread().interrupt(); break; }
         }
@@ -99,15 +116,45 @@ class BookingApiTest {
 
     @Test
     void a_request_missing_fields_is_400() {
-        HttpHeaders headers = new HttpHeaders();
+        HttpHeaders headers = asUser(5512L);
         headers.setContentType(MediaType.APPLICATION_JSON);
         ResponseEntity<String> res = http.postForEntity("/api/bookings", new HttpEntity<>("""
-                {"requestId":"","userId":-1,"trainNumber":"12951",
-                 "travelDate":"2026-08-25","coachClass":"3A"}
+                {"requestId":"","trainNumber":"12951",
+                 "travelDate":"2026-08-25","coachClass":""}
                 """, headers), String.class);
 
         assertThat(res.getStatusCode()).isEqualTo(HttpStatus.BAD_REQUEST);
-        assertThat(res.getBody()).contains("INVALID_REQUEST").contains("requestId").contains("userId");
+        assertThat(res.getBody()).contains("INVALID_REQUEST").contains("requestId").contains("coachClass");
+    }
+
+    /** Reached directly, not via the gateway — no identity, so no booking. */
+    @Test
+    void no_user_id_header_is_401() {
+        HttpHeaders headers = new HttpHeaders();
+        headers.setContentType(MediaType.APPLICATION_JSON);
+        ResponseEntity<String> res = http.postForEntity("/api/bookings", new HttpEntity<>("""
+                {"requestId":"NOID","trainNumber":"12951",
+                 "travelDate":"2026-08-25","coachClass":"3A"}
+                """, headers), String.class);
+
+        assertThat(res.getStatusCode()).isEqualTo(HttpStatus.UNAUTHORIZED);
+        assertThat(res.getBody()).contains("UNAUTHENTICATED");
+    }
+
+    /**
+     * The hole that has been open since phase 2: GET ?userId= let anyone read
+     * anyone's booking. Now you only ever see your own.
+     */
+    @Test
+    void you_cannot_read_someone_elses_booking() {
+        post("MINE", 5512L, "12951");
+        assertThat(awaitOutcome("MINE", 5512L, Duration.ofSeconds(30)))
+                .as("the owner sees it").contains("\"status\":\"HELD\"");
+
+        assertThat(poll("MINE", 7731L).getBody())
+                .as("someone else asking for the same request id sees nothing")
+                .contains("PENDING")
+                .doesNotContain("HELD");
     }
 
     @Test
