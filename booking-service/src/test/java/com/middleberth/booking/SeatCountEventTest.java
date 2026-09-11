@@ -9,6 +9,7 @@ import com.middleberth.booking.repository.BookingRepository;
 import com.middleberth.booking.repository.SeatRepository;
 import com.middleberth.booking.repository.TrainRepository;
 import com.middleberth.booking.service.BookingService;
+import com.middleberth.booking.service.HoldExpiryJob;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.apache.kafka.clients.consumer.*;
@@ -20,10 +21,12 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.autoconfigure.kafka.KafkaConnectionDetails;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.context.annotation.Import;
+import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.transaction.support.TransactionTemplate;
 
 import java.nio.file.Path;
 import java.time.Duration;
+import java.time.Instant;
 import java.time.LocalDate;
 import java.util.*;
 
@@ -43,18 +46,18 @@ class SeatCountEventTest {
     private static final LocalDate DATE = LocalDate.of(2026, 8, 25);
 
     @Autowired BookingService bookingService;
+    @Autowired HoldExpiryJob expiryJob;
     @Autowired SeatRepository seatRepo;
     @Autowired TrainRepository trainRepo;
     @Autowired BookingRepository bookingRepo;
     @Autowired TransactionTemplate tx;
+    @Autowired JdbcTemplate jdbc;
     @Autowired KafkaConnectionDetails kafka;
 
     @BeforeEach
     void seed() {
         tx.executeWithoutResult(s -> {
-            bookingRepo.deleteAllInBatch();
-            seatRepo.deleteAllInBatch();
-            trainRepo.deleteAllInBatch();
+            TestDatabase.wipe(jdbc);
             Train train = trainRepo.save(new Train("12951", "Mumbai Rajdhani"));
             for (int n = 1; n <= 24; n++) {
                 seatRepo.save(new Seat(train.getId(), DATE, "3A", "B2",
@@ -97,6 +100,24 @@ class SeatCountEventTest {
 
             List<ConsumerRecord<String, String>> records = drain(consumer, 1, Duration.ofSeconds(5));
             assertThat(records).as("a waitlisted booking touches no seat rows").isEmpty();
+        }
+    }
+
+    /**
+     * When nobody pays for a berth and nobody is waiting, it goes back on sale —
+     * and search-service must hear the count go UP, or it keeps showing the berth
+     * as taken.
+     */
+    @Test
+    void an_expired_berth_going_back_on_sale_publishes_the_higher_count() {
+        bookingService.book(new BookingCommand("GONE", 5512L, "12951", DATE, "3A"));   // 23 free
+
+        try (Consumer<String, String> consumer = consumerFromNow()) {
+            expiryJob.releaseExpired(Instant.now().plus(Duration.ofMinutes(10)));
+
+            List<ConsumerRecord<String, String>> records = drain(consumer, 1, Duration.ofSeconds(20));
+            assertThat(records).as("the release was announced").hasSize(1);
+            assertThat(freeSeatsIn(records.get(0).value())).as("back up to 24").isEqualTo(24);
         }
     }
 

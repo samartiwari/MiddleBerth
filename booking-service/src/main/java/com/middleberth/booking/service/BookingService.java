@@ -90,12 +90,17 @@ public class BookingService {
 
     //changes the seat number 42 -> 32-B like a user friendly manner
     private BookingResult toResult(Booking booking) {
-        if (booking.getStatus() == BookingStatus.WAITLISTED) {
-            return BookingResult.waitlisted(booking.getWaitlistPos());
-        }
-        String label = seatRepo.findById(booking.getSeatId())
-                .map(Seat::label)
-                .orElse(null);
-        return BookingResult.held(label);
+        return switch (booking.getStatus()) {
+            case HELD          -> BookingResult.held(seatLabel(booking), booking.getPayBy());
+            case CONFIRMED     -> BookingResult.confirmed(seatLabel(booking));
+            case WAITLIST_HELD -> BookingResult.waitlistHeld(booking.getWaitlistPos(), booking.getPayBy());
+            case WAITLISTED    -> BookingResult.waitlisted(booking.getWaitlistPos());
+            case EXPIRED       -> BookingResult.expired();
+            case REGRETTED     -> BookingResult.regretted();
+        };
+    }
+
+    private String seatLabel(Booking booking) {
+        return seatRepo.findById(booking.getSeatId()).map(Seat::label).orElse(null);
     }
 }

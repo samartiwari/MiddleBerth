@@ -12,6 +12,7 @@ import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.context.annotation.Import;
+import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.transaction.support.TransactionTemplate;
 
 import java.time.LocalDate;
@@ -38,13 +39,12 @@ class BookingServiceConcurrencyTest {
     @Autowired TrainRepository trainRepo;
     @Autowired BookingRepository bookingRepo;
     @Autowired TransactionTemplate tx;
+    @Autowired JdbcTemplate jdbc;
 
     @BeforeEach
     void seed() {
         tx.executeWithoutResult(s -> {
-            bookingRepo.deleteAllInBatch();
-            seatRepo.deleteAllInBatch();
-            trainRepo.deleteAllInBatch();
+            TestDatabase.wipe(jdbc);
             Train train = trainRepo.save(new Train(TRAIN, "Mumbai Rajdhani"));
             for (int n = 1; n <= SEATS; n++) {
                 seatRepo.save(new Seat(train.getId(), DATE, CLASS, "B2",
@@ -54,32 +54,47 @@ class BookingServiceConcurrencyTest {
     }
 
     @Test
-    void twenty_four_berths_go_to_twenty_four_people_and_the_rest_are_waitlisted() throws Exception {
+    void twenty_four_berths_then_twenty_four_waitlisted_then_the_rest_regretted() throws Exception {
         List<BookingResult> results = runConcurrently(PEOPLE, i -> new BookingCommand(
                 "REQ-" + i, 1000L + i, TRAIN, DATE, CLASS));
 
-        List<BookingResult> held = results.stream()
-                .filter(r -> r.status() == BookingStatus.HELD).toList();
-        List<BookingResult> waitlisted = results.stream()
-                .filter(r -> r.status() == BookingStatus.WAITLISTED).toList();
+        List<BookingResult> held = withStatus(results, BookingStatus.HELD);
+        List<BookingResult> waitlist = withStatus(results, BookingStatus.WAITLIST_HELD);
+        List<BookingResult> regretted = withStatus(results, BookingStatus.REGRETTED);
 
         assertThat(held).as("berths handed out").hasSize(SEATS);
-        assertThat(waitlisted).as("everyone else waitlisted").hasSize(PEOPLE - SEATS);
+        assertThat(waitlist).as("waitlist capped at the number of berths").hasSize(SEATS);
+        assertThat(regretted).as("everyone else turned away").hasSize(PEOPLE - 2 * SEATS);
 
         // THE assertion — 24 people, 24 different berths
         Set<String> berths = new HashSet<>(held.stream().map(BookingResult::seat).toList());
         assertThat(berths).as("distinct berths").hasSize(SEATS);
 
+        // every hold has a deadline
+        assertThat(held).allMatch(r -> r.payBy() != null);
+        assertThat(waitlist).allMatch(r -> r.payBy() != null);
+
         // and the database agrees
         assertThat(bookingRepo.count()).isEqualTo(PEOPLE);
         assertThat(seatRepo.findAll()).allMatch(s -> s.getStatus() == SeatStatus.HELD);
 
-        // how good are the waitlist numbers? (reported, not asserted — see below)
-        List<Integer> positions = waitlisted.stream().map(BookingResult::position).toList();
-        long distinctPositions = positions.stream().distinct().count();
+        // Waitlist numbers are now ASSERTED, not just reported. This test calls the
+        // service directly with 500 threads — no Kafka, no per-train serialising —
+        // and before phase 5 it produced ~380 duplicate positions. The atomic
+        // counter makes duplicates impossible by construction.
+        List<Integer> positions = waitlist.stream().map(BookingResult::position).toList();
         System.out.printf("%nwaitlist: %d people, %d distinct positions, %d duplicates%n",
-                positions.size(), distinctPositions, positions.size() - distinctPositions);
+                positions.size(), positions.stream().distinct().count(),
+                positions.size() - positions.stream().distinct().count());
+        assertThat(positions).as("no two people share a waitlist number").doesNotHaveDuplicates();
+        assertThat(positions).as("numbered 1 to 24").containsExactlyInAnyOrderElementsOf(
+                java.util.stream.IntStream.rangeClosed(1, SEATS).boxed().toList());
     }
+
+    private static List<BookingResult> withStatus(List<BookingResult> results, BookingStatus status) {
+        return results.stream().filter(r -> r.status() == status).toList();
+    }
+
 
     //checking if 50 request with same user books 50 tickets or only 1 ticket
     @Test

@@ -14,6 +14,7 @@ import org.springframework.boot.test.web.client.TestRestTemplate;
 import org.springframework.context.annotation.Import;
 import org.springframework.http.*;
 import org.springframework.http.HttpMethod;
+import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.transaction.support.TransactionTemplate;
 
 import java.time.Duration;
@@ -42,13 +43,12 @@ class BookingApiTest {
     @Autowired TrainRepository trainRepo;
     @Autowired BookingRepository bookingRepo;
     @Autowired TransactionTemplate tx;
+    @Autowired JdbcTemplate jdbc;
 
     @BeforeEach
     void seed() {
         tx.executeWithoutResult(s -> {
-            bookingRepo.deleteAllInBatch();
-            seatRepo.deleteAllInBatch();
-            trainRepo.deleteAllInBatch();
+            TestDatabase.wipe(jdbc);
             Train train = trainRepo.save(new Train("12951", "Mumbai Rajdhani"));
             for (int n = 1; n <= SEATS; n++) {
                 seatRepo.save(new Seat(train.getId(), DATE, "3A", "B2",
@@ -195,15 +195,23 @@ class BookingApiTest {
         long totalMs = (System.nanoTime() - start) / 1_000_000;
         pool.shutdownNow();
 
-        List<String> held = outcomes.stream().filter(o -> o.contains("\"HELD\"")).toList();
-        List<String> waitlisted = outcomes.stream().filter(o -> o.contains("\"WAITLISTED\"")).toList();
+        List<String> held = outcomes.stream().filter(o -> o.contains("\"status\":\"HELD\"")).toList();
+        List<String> waitlisted = outcomes.stream().filter(o -> o.contains("\"status\":\"WAITLIST_HELD\"")).toList();
+        List<String> regretted = outcomes.stream().filter(o -> o.contains("\"status\":\"REGRETTED\"")).toList();
 
-        System.out.printf("%n%d POSTs accepted in %d ms; all processed by %d ms — %d HELD, %d WAITLISTED%n",
-                PEOPLE, acceptedMs, totalMs, held.size(), waitlisted.size());
+        System.out.printf("%n%d POSTs accepted in %d ms; all processed by %d ms — %d HELD, %d WAITLIST_HELD, %d REGRETTED%n",
+                PEOPLE, acceptedMs, totalMs, held.size(), waitlisted.size(), regretted.size());
 
         assertThat(held).hasSize(SEATS);
-        assertThat(waitlisted).hasSize(PEOPLE - SEATS);
-        assertThat(new HashSet<>(held)).as("distinct berths").hasSize(SEATS);
+        assertThat(waitlisted).as("waitlist capped at the number of berths").hasSize(SEATS);
+        assertThat(regretted).as("everyone else turned away").hasSize(PEOPLE - 2 * SEATS);
+
+        // Compare the SEATS, not the whole bodies. Each body carries its own payBy
+        // timestamp, so a set of bodies would always have 24 entries — and this
+        // assertion would pass even if two people got the same berth.
+        List<String> seats = held.stream()
+                .map(o -> o.replaceAll(".*\"seat\":\"([^\"]+)\".*", "$1")).toList();
+        assertThat(new HashSet<>(seats)).as("distinct berths").hasSize(SEATS);
 
         assertThat(bookingRepo.count()).isEqualTo(PEOPLE);
         assertThat(seatRepo.findAll()).allMatch(s -> s.getStatus() == SeatStatus.HELD);
@@ -212,6 +220,7 @@ class BookingApiTest {
                 .map(o -> Integer.parseInt(o.replaceAll(".*\"position\":(\\d+).*", "$1")))
                 .toList();
         long distinct = positions.stream().distinct().count();
+        assertThat(positions).as("no two people share a waitlist number").doesNotHaveDuplicates();
         System.out.printf("waitlist: %d people, %d distinct positions, %d duplicates%n",
                 positions.size(), distinct, positions.size() - distinct);
     }

@@ -10,6 +10,7 @@ import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.context.annotation.Import;
+import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.transaction.support.TransactionTemplate;
 
 import java.time.LocalDate;
@@ -39,6 +40,7 @@ class SeatClaimConcurrencyTest {
     @Autowired BookingRepository bookingRepo;
     @Autowired TrainRepository trainRepo;
     @Autowired TransactionTemplate tx;
+    @Autowired JdbcTemplate jdbc;
 
     @Test
     void concurrent_requests_never_double_book() throws Exception {
@@ -94,9 +96,7 @@ class SeatClaimConcurrencyTest {
 
     private Long seedTrainWith24FreeSeats() {
         return tx.execute(status -> {
-            bookingRepo.deleteAllInBatch();   // bookings reference seats — clear them first
-            seatRepo.deleteAllInBatch();
-            trainRepo.deleteAllInBatch();
+            TestDatabase.wipe(jdbc);
             Train train = trainRepo.save(new Train("12951", "Mumbai Rajdhani"));
             for (int n = 1; n <= SEATS; n++) {
                 seatRepo.save(new Seat(train.getId(), DATE, CLASS, "B2",

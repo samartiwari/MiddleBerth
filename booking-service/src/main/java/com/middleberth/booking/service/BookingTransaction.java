@@ -1,17 +1,18 @@
 package com.middleberth.booking.service;
 
 import com.middleberth.booking.domain.Booking;
-import com.middleberth.booking.domain.BookingStatus;
 import com.middleberth.booking.domain.Seat;
 import com.middleberth.booking.domain.SeatStatus;
 import com.middleberth.booking.dto.BookingCommand;
 import com.middleberth.booking.dto.BookingResult;
 import com.middleberth.booking.repository.BookingRepository;
 import com.middleberth.booking.repository.SeatRepository;
+import com.middleberth.booking.repository.WaitlistCounter;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Component;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.time.Instant;
 import java.util.Optional;
 
 /**
@@ -29,9 +30,24 @@ class BookingTransaction {
 
     private final SeatRepository seatRepo;
     private final BookingRepository bookingRepo;
+    private final WaitlistCounter waitlistCounter;
+    private final HoldSettings holds;
 
+    /**
+     * Three outcomes, and the first two are both a HOLD with a deadline:
+     *
+     *   berth free       -> hold the berth,         pay within 5 minutes
+     *   berth gone       -> hold a waitlist slot,   pay within 5 minutes
+     *   waitlist full    -> REGRET, nothing held
+     *
+     * If the insert is rejected as a duplicate request, the whole transaction rolls
+     * back — the berth goes back to FREE and the waitlist counter goes back down, so
+     * a retry never burns a berth or a number.
+     */
     @Transactional
     BookingResult claimOrWaitlist(BookingCommand cmd, Long trainId) {
+        Instant payBy = Instant.now().plus(holds.payWithin());
+
         //try to claim a seat
         Optional<Seat> claimed =
                 seatRepo.claimFreeSeat(trainId, cmd.travelDate(), cmd.coachClass());
@@ -41,16 +57,21 @@ class BookingTransaction {
             seat.setStatus(SeatStatus.HELD);       // locked until this commits
             bookingRepo.saveAndFlush(Booking.held(
                     cmd.requestId(), cmd.userId(), trainId,
-                    cmd.travelDate(), cmd.coachClass(), seat.getId()));
-            return BookingResult.held(seat.label());
+                    cmd.travelDate(), cmd.coachClass(), seat.getId(), payBy));
+            return BookingResult.held(seat.label(), payBy);
         }
 
-        int position = bookingRepo.countByTrainIdAndTravelDateAndCoachClassAndStatus(
-                trainId, cmd.travelDate(), cmd.coachClass(), BookingStatus.WAITLISTED) + 1;
+        Optional<Integer> number = waitlistCounter.take(trainId, cmd.travelDate(), cmd.coachClass());
 
-        bookingRepo.saveAndFlush(Booking.waitlisted(
-                cmd.requestId(), cmd.userId(), trainId,
-                cmd.travelDate(), cmd.coachClass(), position));
-        return BookingResult.waitlisted(position);
+        if (number.isPresent()) {
+            bookingRepo.saveAndFlush(Booking.waitlistHeld(
+                    cmd.requestId(), cmd.userId(), trainId,
+                    cmd.travelDate(), cmd.coachClass(), number.get(), payBy));
+            return BookingResult.waitlistHeld(number.get(), payBy);
+        }
+
+        bookingRepo.saveAndFlush(Booking.regretted(
+                cmd.requestId(), cmd.userId(), trainId, cmd.travelDate(), cmd.coachClass()));
+        return BookingResult.regretted();
     }
 }
