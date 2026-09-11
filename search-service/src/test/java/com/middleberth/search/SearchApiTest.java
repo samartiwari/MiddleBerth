@@ -13,6 +13,8 @@ import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 
+import java.nio.file.Files;
+import java.nio.file.Path;
 import java.time.Duration;
 import java.util.*;
 
@@ -106,6 +108,23 @@ class SearchApiTest {
         assertThat(res.getBody()).contains("TRAIN_NOT_FOUND");
     }
 
+    /**
+     * The other half of this lives in booking-service: it checks that what it
+     * publishes has every field in this same file. So if either side renames a
+     * field, one of the two tests goes red instead of both staying green while
+     * the real system breaks.
+     */
+    @Test
+    void it_reads_the_shared_contract() throws Exception {
+        String contract = Files.readString(Path.of("../contracts/seat-count-event.json"));
+
+        publishRaw("12951|2026-08-25|3A", contract);
+
+        String body = awaitStatus("12951", "2026-08-25", "3A", "AVAILABLE", Duration.ofSeconds(20));
+        assertThat(body).as("the count in the contract made it through")
+                        .contains("\"freeSeats\":23");
+    }
+
     // ---------- helpers ----------
 
     private String availability(String train, String date, String coachClass) {
@@ -127,18 +146,20 @@ class SearchApiTest {
 
     /** Stands in for booking-service. A raw producer, because search-service produces nothing. */
     private void publishSeatCount(String train, String date, String coachClass, int freeSeats) {
+        String json = """
+                {"trainNumber":"%s","travelDate":"%s","coachClass":"%s","freeSeats":%d}
+                """.formatted(train, date, coachClass, freeSeats);
+        publishRaw(train + "|" + date + "|" + coachClass, json);
+    }
+
+    private void publishRaw(String key, String json) {
         Map<String, Object> props = new HashMap<>();
         props.put(ProducerConfig.BOOTSTRAP_SERVERS_CONFIG, kafka.getBootstrapServers());
         props.put(ProducerConfig.KEY_SERIALIZER_CLASS_CONFIG, StringSerializer.class);
         props.put(ProducerConfig.VALUE_SERIALIZER_CLASS_CONFIG, StringSerializer.class);
 
-        String json = """
-                {"trainNumber":"%s","travelDate":"%s","coachClass":"%s","freeSeats":%d}
-                """.formatted(train, date, coachClass, freeSeats);
-
         try (Producer<String, String> producer = new KafkaProducer<>(props)) {
-            producer.send(new ProducerRecord<>("seat-counts",
-                    train + "|" + date + "|" + coachClass, json));
+            producer.send(new ProducerRecord<>("seat-counts", key, json));
             producer.flush();
         }
     }
