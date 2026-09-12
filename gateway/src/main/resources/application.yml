@@ -87,6 +87,21 @@ spring:
                     redis-rate-limiter.requestedTokens: 1
                     key-resolver: "#{@userKeyResolver}"
 
+            # Cancelling a ticket. Same limit as paying: it is a deliberate act,
+            # not something a page does in a loop.
+            - id: booking-cancel
+              uri: ${middleberth.booking-url}
+              predicates:
+                - Path=/api/bookings/*/cancel
+                - Method=POST
+              filters:
+                - name: RequestRateLimiter
+                  args:
+                    redis-rate-limiter.replenishRate: 1
+                    redis-rate-limiter.burstCapacity: 3
+                    redis-rate-limiter.requestedTokens: 1
+                    key-resolver: "#{@userKeyResolver}"
+
             # Pay Now. Same rule as booking — needs a token, limited per user.
             - id: booking-pay
               uri: ${middleberth.booking-url}

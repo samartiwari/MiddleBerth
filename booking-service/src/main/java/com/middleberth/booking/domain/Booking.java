@@ -8,6 +8,7 @@ import lombok.Setter;
 import java.time.Instant;
 import java.time.LocalDate;
 import java.time.OffsetDateTime;
+import java.util.concurrent.ThreadLocalRandom;
 
 /**
  * One person's attempt to book. Starts as a hold on a berth or a waitlist slot,
@@ -73,6 +74,14 @@ public class Booking {
     @Embedded
     private PassengerSnapshot passenger;
 
+    /**
+     * Issued when the ticket is paid for — confirmed or waitlisted, exactly as on
+     * IRCTC, where a waitlisted ticket has a PNR too. Null until then, because a
+     * hold nobody paid for is not a ticket.
+     */
+    @Column(name = "pnr", length = 10)
+    private String pnr;
+
     public static Booking held(String requestId, Long userId, Long trainId,
                                LocalDate travelDate, String coachClass, PassengerSnapshot passenger,
                                Long seatId, Instant payBy) {
@@ -109,6 +118,20 @@ public class Booking {
     // ---------- the lifecycle ----------
 
     /** Money arrived. A held berth is confirmed; a held waitlist slot is kept. */
+    /**
+     * Ten digits, random rather than counted up.
+     *
+     * A sequence would be simpler, but then PNRs are guessable: 1000000042 tells
+     * you 1000000041 exists. Random out of nine billion does not. If two ever
+     * collide the UNIQUE index refuses the second, the message is retried, and it
+     * gets a different number.
+     */
+    private void issuePnr() {
+        if (pnr == null) {
+            pnr = String.valueOf(ThreadLocalRandom.current().nextLong(1_000_000_000L, 10_000_000_000L));
+        }
+    }
+
     public void markPaid(Instant at) {
         if (status == BookingStatus.HELD) {
             status = BookingStatus.CONFIRMED;
@@ -119,6 +142,7 @@ public class Booking {
         }
         paidAt = at;
         payBy = null;
+        issuePnr();      // paid for, so it is a ticket now — waitlisted counts
     }
 
     /**
@@ -148,6 +172,7 @@ public class Booking {
         this.waitlistPos = null;
         this.status = BookingStatus.CONFIRMED;
         this.paidAt = paidAt;
+        issuePnr();
     }
 
     /** A payment made in time arrived after the waitlist hold was released, and there was room. */
@@ -156,6 +181,7 @@ public class Booking {
         this.waitlistPos = position;
         this.status = BookingStatus.WAITLISTED;
         this.paidAt = paidAt;
+        issuePnr();
     }
 
     private void requireExpired() {
@@ -168,6 +194,20 @@ public class Booking {
      * A berth freed up and this paid waitlister is next in line. They already paid
      * the full fare for a waitlisted ticket, so confirming costs them nothing more.
      */
+    /**
+     * Given up by the passenger. The berth is handed on by whoever calls this —
+     * the booking only records that it is no longer theirs.
+     */
+    public void cancel() {
+        if (status == BookingStatus.CANCELLED) {
+            throw new IllegalStateException("Already cancelled");
+        }
+        status = BookingStatus.CANCELLED;
+        seatId = null;
+        waitlistPos = null;
+        payBy = null;
+    }
+
     public void promoteTo(Long berthId) {
         if (status != BookingStatus.WAITLISTED) {
             throw new IllegalStateException("Only a paid waitlister can be promoted, this one is " + status);

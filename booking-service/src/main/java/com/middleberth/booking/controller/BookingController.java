@@ -4,7 +4,12 @@ import com.middleberth.booking.dto.BookingAccepted;
 import com.middleberth.booking.dto.BookingRequest;
 import com.middleberth.booking.dto.BookingStatusResponse;
 import com.middleberth.booking.dto.PayNowResponse;
+import com.middleberth.booking.dto.CancelledResponse;
+import com.middleberth.booking.dto.RefundRequest;
 import com.middleberth.booking.kafka.BookingPublisher;
+import com.middleberth.booking.kafka.RefundRequestPublisher;
+import com.middleberth.booking.service.BookingCancellation;
+import com.middleberth.booking.service.CancelOutcome;
 import com.middleberth.booking.service.BookingService;
 import com.middleberth.booking.service.PayNowService;
 import jakarta.validation.Valid;
@@ -32,6 +37,8 @@ public class BookingController {
     private final BookingPublisher publisher;
     private final BookingService bookingService;
     private final PayNowService payNowService;
+    private final BookingCancellation cancellation;
+    private final RefundRequestPublisher refunds;
 
     /**
      * Does almost nothing on purpose: validate, drop a message on the queue,
@@ -66,6 +73,23 @@ public class BookingController {
         return bookingService.outcomeOf(userId, requestId)
                 .map(BookingStatusResponse::of)
                 .orElseGet(BookingStatusResponse::pending);
+    }
+
+    /**
+     * Give the ticket up.
+     *
+     * The berth does not go back on sale — it goes to the next paid waitlister,
+     * inside one transaction, exactly as when a hold expires. Money that was paid
+     * is refunded in full; this project has no cancellation fee.
+     */
+    @PostMapping("/{requestId}/cancel")
+    public CancelledResponse cancel(@RequestHeader(USER_ID) Long userId,
+                                    @PathVariable String requestId) {
+        CancelOutcome outcome = cancellation.cancel(userId, requestId);
+        if (outcome.refundDue()) {
+            refunds.publishAndWait(RefundRequest.forCancellation(userId, requestId));
+        }
+        return new CancelledResponse(outcome.pnr(), outcome.refundDue());
     }
 
     /**

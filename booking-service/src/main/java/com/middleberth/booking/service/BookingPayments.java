@@ -82,9 +82,9 @@ public class BookingPayments {
             Seat berth = seatRepo.findById(booking.getSeatId()).orElseThrow();
             berth.setStatus(SeatStatus.CONFIRMED);
             outbox.ticketConfirmed(booking, berth.label());
-            return BookingResult.confirmed(berth.label());
+            return BookingResult.confirmed(berth.label(), booking.getPnr());
         }
-        return BookingResult.waitlisted(booking.getWaitlistPos());
+        return BookingResult.waitlisted(booking.getWaitlistPos(), booking.getPnr());
     }
 
     /**
@@ -113,7 +113,9 @@ public class BookingPayments {
             }
             case CONFIRMED, WAITLISTED -> PaymentApplied.ALREADY_PAID;
             case EXPIRED -> lateArrival(booking, paidAt);
-            case REGRETTED -> PaymentApplied.NOT_PAYABLE;
+            // Nothing to pay for: they were regretted, or they cancelled. Either
+            // way money arriving now goes straight back.
+            case REGRETTED, CANCELLED -> PaymentApplied.NOT_PAYABLE;
         };
 
         // Written here, in the transaction that just decided it. If any of this

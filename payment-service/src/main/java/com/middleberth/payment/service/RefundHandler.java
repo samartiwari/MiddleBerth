@@ -38,9 +38,10 @@ public class RefundHandler {
     private final TransactionTemplate tx;
 
     public RefundOutcome refund(RefundRequest request) {
-        Optional<Payment> found = paymentRepo.findByOrderId(request.orderId());
+        Optional<Payment> found = find(request);
         if (found.isEmpty()) {
-            log.error("Refund asked for unknown order {} — needs a human", request.orderId());
+            log.error("Refund asked for a payment we do not have: order {} / booking {}|{} — needs a human",
+                    request.orderId(), request.userId(), request.requestId());
             return RefundOutcome.UNKNOWN_ORDER;
         }
         Payment payment = found.get();
@@ -53,11 +54,32 @@ public class RefundHandler {
 
         String refundId = gateway.refundInFull(payment.getRazorpayPaymentId(), payment.getAmountPaise());
 
-        tx.executeWithoutResult(s -> paymentRepo.lockByOrderId(request.orderId())
+        tx.executeWithoutResult(s -> paymentRepo.lockByOrderId(payment.getOrderId())
                 .filter(p -> p.getStatus() == PaymentStatus.PAID)
                 .ifPresent(p -> p.markRefunded(refundId, Instant.now())));
 
-        log.warn("Refunded {} paise for order {} ({})", payment.getAmountPaise(), request.orderId(), request.reason());
+        log.warn("Refunded {} paise for order {} ({})", payment.getAmountPaise(),
+                payment.getOrderId(), request.reason());
         return RefundOutcome.REFUNDED;
+    }
+
+    /**
+     * Two ways in, because the two things that ask for refunds know different
+     * things.
+     *
+     * A late payment names the ORDER, because it came from a payment event that
+     * carried one. A cancellation only knows whose booking it was — booking-service
+     * never stored an order id, and should not have to. This service already keeps
+     * one payment per (user, booking), so that pair is enough.
+     *
+     * The amount always comes from OUR record of what was taken, never from the
+     * request. Refunding a number somebody else sent us is how you refund the
+     * wrong amount.
+     */
+    private Optional<Payment> find(RefundRequest request) {
+        if (request.orderId() != null && !request.orderId().isBlank()) {
+            return paymentRepo.findByOrderId(request.orderId());
+        }
+        return paymentRepo.findByUserIdAndRequestId(request.userId(), request.requestId());
     }
 }

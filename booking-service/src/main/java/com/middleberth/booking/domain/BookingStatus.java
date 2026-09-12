@@ -10,6 +10,8 @@ package com.middleberth.booking.domain;
  *     \------------- late ----> EXPIRED
  *
  *   REGRETTED   the waitlist was full, so nothing was held at all
+ *   CANCELLED   the passenger gave it up. A berth goes straight to the next paid
+ *               waitlister, exactly as when a hold expires, and paid money goes back.
  */
 public enum BookingStatus {
     HELD,
@@ -17,7 +19,8 @@ public enum BookingStatus {
     CONFIRMED,
     WAITLISTED,
     EXPIRED,
-    REGRETTED;
+    REGRETTED,
+    CANCELLED;
 
     /** Unpaid, with a deadline — what the expiry job looks for. */
     public boolean isHold() {

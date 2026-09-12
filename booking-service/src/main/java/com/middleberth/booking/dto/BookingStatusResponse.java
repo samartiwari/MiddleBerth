@@ -7,6 +7,7 @@ import java.time.Instant;
 /**
  * { "status": "PENDING" }
  * { "status": "HELD",       "seat": "B2-31" }
+ * { "status": "CONFIRMED",  "seat": "B2-31", "pnr": "4728193056" }
  * { "status": "WAITLIST_HELD", "position": 12, "payBy": "..." }
  * { "status": "REGRETTED" }
  *
@@ -15,14 +16,15 @@ import java.time.Instant;
  * BookingResponse.
  */
 @JsonInclude(JsonInclude.Include.NON_NULL)
-public record BookingStatusResponse(String status, String seat, Integer position, Instant payBy) {
+public record BookingStatusResponse(String status, String seat, Integer position, Instant payBy,
+                                    String pnr) {
 
     public static BookingStatusResponse pending() {
-        return new BookingStatusResponse("PENDING", null, null, null);
+        return new BookingStatusResponse("PENDING", null, null, null, null);
     }
 
     public static BookingStatusResponse of(BookingResult result) {
         return new BookingStatusResponse(result.status().name(), result.seat(),
-                result.position(), result.payBy());
+                result.position(), result.payBy(), result.pnr());
     }
 }

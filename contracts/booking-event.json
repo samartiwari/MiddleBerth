@@ -8,5 +8,6 @@
   "berth": "B2-31",
   "reason": null,
   "passengerName": "Samar Tiwari",
-  "passengerEmail": "samar@example.invalid"
+  "passengerEmail": "samar@example.invalid",
+  "pnr": "4728193056"
 }

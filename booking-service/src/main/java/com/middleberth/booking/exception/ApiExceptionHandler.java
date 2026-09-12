@@ -72,6 +72,13 @@ public class ApiExceptionHandler {
                 "Could not accept the request — nothing was booked, try again with the same requestId");
     }
 
+    /** A ticket that has already gone, one way or another. */
+    @ExceptionHandler(NotCancellableException.class)
+    @ResponseStatus(HttpStatus.CONFLICT)
+    public ApiError notCancellable(NotCancellableException e) {
+        return new ApiError("NOT_CANCELLABLE", e.getMessage());
+    }
+
     /** Not on your list, or not yours at all — the same answer either way. */
     @ExceptionHandler(PassengerNotFoundException.class)
     @ResponseStatus(HttpStatus.NOT_FOUND)

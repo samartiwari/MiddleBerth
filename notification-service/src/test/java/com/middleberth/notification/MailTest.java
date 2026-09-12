@@ -55,7 +55,9 @@ class MailTest {
                 .isEqualTo("samar@example.invalid");
         assertThat(mail.body()).contains("Samar Tiwari");
         assertThat(mail.subject()).contains("Ticket confirmed").contains("12951");
-        assertThat(mail.body()).contains("B2-31").contains("A7X2");
+        assertThat(mail.body()).contains("B2-31")
+                .as("the number a passenger quotes, not our internal request id")
+                .contains("PNR 4728193056");
     }
 
     /** Messages arrive at least once — the outbox can hand the same note over twice. */
@@ -105,16 +107,18 @@ class MailTest {
         return """
                 {"type":"TICKET_CONFIRMED","userId":%d,"requestId":"%s","trainNumber":"12951",\
                 "travelDate":"2026-08-25","coachClass":"3A","berth":"B2-31","reason":null,\
-                "passengerName":"Passenger %d","passengerEmail":"passenger%d@example.invalid"}"""
-                .formatted(userId, requestId, userId, userId);
+                "passengerName":"Passenger %d","passengerEmail":"passenger%d@example.invalid",\
+                "pnr":"100000000%d"}"""
+                .formatted(userId, requestId, userId, userId, userId);
     }
 
     private String cancelled(long userId, String requestId, String reason) {
         return """
                 {"type":"BOOKING_CANCELLED","userId":%d,"requestId":"%s","trainNumber":"12951",\
                 "travelDate":"2026-08-25","coachClass":"3A","berth":null,"reason":"%s",\
-                "passengerName":"Passenger %d","passengerEmail":"passenger%d@example.invalid"}"""
-                .formatted(userId, requestId, reason, userId, userId);
+                "passengerName":"Passenger %d","passengerEmail":"passenger%d@example.invalid",\
+                "pnr":"100000000%d"}"""
+                .formatted(userId, requestId, reason, userId, userId, userId);
     }
 
     /** A ticket event with nobody to send it to. */
@@ -122,7 +126,7 @@ class MailTest {
         return """
                 {"type":"TICKET_CONFIRMED","userId":%d,"requestId":"%s","trainNumber":"12951",\
                 "travelDate":"2026-08-25","coachClass":"3A","berth":"B2-31","reason":null,\
-                "passengerName":null,"passengerEmail":null}"""
+                "passengerName":null,"passengerEmail":null,"pnr":null}"""
                 .formatted(userId, requestId);
     }
 

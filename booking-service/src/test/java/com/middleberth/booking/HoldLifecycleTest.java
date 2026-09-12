@@ -230,6 +230,43 @@ class HoldLifecycleTest {
         assertThat(seatRepo.findAll()).allMatch(s -> s.getStatus() == SeatStatus.FREE);
     }
 
+    /**
+     * The number a passenger quotes to anybody.
+     *
+     * Issued when the ticket is PAID for, not when it is booked — and a waitlisted
+     * ticket gets one too, exactly as on IRCTC. A hold nobody paid for is not a
+     * ticket and has no PNR.
+     */
+    @Test
+    void a_paid_ticket_gets_a_pnr_and_an_unpaid_hold_does_not() {
+        seed(2);
+        book("A", 1);
+
+        assertThat(bookingRepo.findByUserIdAndRequestId(1L, "A").orElseThrow().getPnr())
+                .as("held, not paid for").isNull();
+
+        BookingResult paid = payments.markPaid(1L, "A", Instant.now());
+
+        assertThat(paid.pnr()).as("ten digits").matches("\\d{10}");
+        assertThat(bookingRepo.findByUserIdAndRequestId(1L, "A").orElseThrow().getPnr())
+                .isEqualTo(paid.pnr());
+    }
+
+    /** Two tickets, two numbers — and the database refuses a repeat. */
+    @Test
+    void every_pnr_is_different() {
+        seed(2);
+        book("A", 1);
+        book("B", 2);
+        payments.markPaid(1L, "A", Instant.now());
+        payments.markPaid(2L, "B", Instant.now());
+
+        String first = bookingRepo.findByUserIdAndRequestId(1L, "A").orElseThrow().getPnr();
+        String second = bookingRepo.findByUserIdAndRequestId(2L, "B").orElseThrow().getPnr();
+
+        assertThat(first).isNotEqualTo(second);
+    }
+
     // ---------- helpers ----------
 
     private void seed(int berths) {

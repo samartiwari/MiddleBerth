@@ -19,19 +19,21 @@ public record NotificationEvent(NotificationType type,
                                 String reason,
                                 /** Who the ticket is for, and where it goes. */
                                 String passengerName,
-                                String passengerEmail) {
+                                String passengerEmail,
+                                /** The number the passenger quotes. Null if it was never paid for. */
+                                String pnr) {
 
     public static NotificationEvent ticket(Long userId, String requestId, String trainNumber,
                                            LocalDate travelDate, String coachClass, String berth,
-                                           String passengerName, String passengerEmail) {
+                                           String passengerName, String passengerEmail, String pnr) {
         return new NotificationEvent(NotificationType.TICKET_CONFIRMED, userId, requestId,
-                trainNumber, travelDate, coachClass, berth, null, passengerName, passengerEmail);
+                trainNumber, travelDate, coachClass, berth, null, passengerName, passengerEmail, pnr);
     }
 
     public static NotificationEvent cancelled(Long userId, String requestId, String trainNumber,
                                               LocalDate travelDate, String coachClass, String reason,
-                                              String passengerName, String passengerEmail) {
+                                              String passengerName, String passengerEmail, String pnr) {
         return new NotificationEvent(NotificationType.BOOKING_CANCELLED, userId, requestId,
-                trainNumber, travelDate, coachClass, null, reason, passengerName, passengerEmail);
+                trainNumber, travelDate, coachClass, null, reason, passengerName, passengerEmail, pnr);
     }
 }

@@ -86,11 +86,12 @@ public class BookingService {
     private BookingResult toResult(Booking booking) {
         return switch (booking.getStatus()) {
             case HELD          -> BookingResult.held(seatLabel(booking), booking.getPayBy());
-            case CONFIRMED     -> BookingResult.confirmed(seatLabel(booking));
+            case CONFIRMED     -> BookingResult.confirmed(seatLabel(booking), booking.getPnr());
             case WAITLIST_HELD -> BookingResult.waitlistHeld(booking.getWaitlistPos(), booking.getPayBy());
-            case WAITLISTED    -> BookingResult.waitlisted(booking.getWaitlistPos());
+            case WAITLISTED    -> BookingResult.waitlisted(booking.getWaitlistPos(), booking.getPnr());
             case EXPIRED       -> BookingResult.expired();
             case REGRETTED     -> BookingResult.regretted();
+            case CANCELLED     -> BookingResult.cancelled(booking.getPnr());
         };
     }
 

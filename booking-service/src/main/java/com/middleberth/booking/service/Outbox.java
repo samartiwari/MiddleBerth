@@ -28,13 +28,13 @@ public class Outbox {
     public void ticketConfirmed(Booking booking, String berth) {
         write(booking, NotificationEvent.ticket(booking.getUserId(), booking.getRequestId(),
                 trainNumber(booking), booking.getTravelDate(), booking.getCoachClass(), berth,
-                nameOf(booking), emailOf(booking)));
+                nameOf(booking), emailOf(booking), booking.getPnr()));
     }
 
     public void bookingCancelled(Booking booking, String reason) {
         write(booking, NotificationEvent.cancelled(booking.getUserId(), booking.getRequestId(),
                 trainNumber(booking), booking.getTravelDate(), booking.getCoachClass(), reason,
-                nameOf(booking), emailOf(booking)));
+                nameOf(booking), emailOf(booking), booking.getPnr()));
     }
 
     private String nameOf(Booking booking) {

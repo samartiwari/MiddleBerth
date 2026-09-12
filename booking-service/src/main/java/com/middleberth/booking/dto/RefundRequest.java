@@ -15,4 +15,16 @@ public record RefundRequest(Long userId,
                             String paymentId,
                             long amountPaise,
                             String reason) {
+
+    /**
+     * A cancellation knows who and which booking, but not which order — booking
+     * never stored an order id, and does not need to. payment-service has its own
+     * UNIQUE(user_id, request_id) and finds the payment from those two.
+     *
+     * The amount is left at zero for the same reason: payment-service knows what
+     * was actually taken, and that is the number that should go back.
+     */
+    public static RefundRequest forCancellation(Long userId, String requestId) {
+        return new RefundRequest(userId, requestId, null, null, 0, "CANCELLED_BY_PASSENGER");
+    }
 }

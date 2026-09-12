@@ -15,5 +15,6 @@ public record NotificationEvent(NotificationType type,
                                 String berth,
                                 String reason,
                                 String passengerName,
-                                String passengerEmail) {
+                                String passengerEmail,
+                                String pnr) {
 }
