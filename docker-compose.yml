@@ -175,10 +175,19 @@ services:
       SPRING_DATASOURCE_USERNAME: middleberth
       SPRING_DATASOURCE_PASSWORD: ${POSTGRES_PASSWORD:-middleberth}
       SPRING_KAFKA_BOOTSTRAP_SERVERS: kafka:9092
-      # stub = the fake gateway. Real Razorpay test mode needs keys, which do not
-      # belong in this file or this repository.
+      # stub = the fake gateway, and the default everywhere. live = the real
+      # Razorpay API, which needs the three values below from the environment —
+      # they do not belong in this file or this repository.
+      #
+      # Load tests must stay on the stub: Razorpay rate limits their own API, so
+      # pointing k6 at it measures them.
       MIDDLEBERTH_RAZORPAY_MODE: ${RAZORPAY_MODE:-stub}
+      RAZORPAY_KEY_ID: ${RAZORPAY_KEY_ID:-}
+      RAZORPAY_KEY_SECRET: ${RAZORPAY_KEY_SECRET:-}
       RAZORPAY_WEBHOOK_SECRET: ${RAZORPAY_WEBHOOK_SECRET:-dev-only-webhook-secret-not-for-real-use}
+      # Every cycle asks the gateway about each unpaid order. Against the stub that
+      # is free; against Razorpay it is an API call, so slow it down when live.
+      MIDDLEBERTH_RECONCILE_INTERVAL: ${RECONCILE_INTERVAL:-PT15S}
     healthcheck:
       test: ["CMD-SHELL", "wget -qO- http://localhost:8083/actuator/health | grep -q UP"]
       interval: 10s
