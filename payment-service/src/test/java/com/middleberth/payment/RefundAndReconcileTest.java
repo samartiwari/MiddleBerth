@@ -12,6 +12,7 @@ import com.middleberth.payment.repository.PaymentRepository;
 import com.middleberth.payment.service.NotCapturedYetException;
 import com.middleberth.payment.service.ReconciliationJob;
 import com.middleberth.payment.service.RefundHandler;
+import com.middleberth.payment.service.PurgeJob;
 import com.middleberth.payment.service.RefundOutcome;
 import org.apache.kafka.clients.consumer.*;
 import org.apache.kafka.clients.producer.KafkaProducer;
@@ -29,11 +30,13 @@ import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.test.web.client.TestRestTemplate;
 import org.springframework.context.annotation.Import;
 import org.springframework.http.*;
+import org.springframework.jdbc.core.JdbcTemplate;
 
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.Duration;
 import java.time.Instant;
+import java.time.OffsetDateTime;
 import java.util.*;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -57,6 +60,8 @@ class RefundAndReconcileTest {
     @Autowired RefundHandler refunds;
     @Autowired ReconciliationJob reconciliation;
     @Autowired KafkaConnectionDetails kafka;
+    @Autowired PurgeJob purgeJob;
+    @Autowired JdbcTemplate jdbc;
 
     private final ObjectMapper json = new ObjectMapper();
 
@@ -196,6 +201,26 @@ class RefundAndReconcileTest {
         reconciliation.reconcile(Instant.now().plus(Duration.ofMinutes(1)));
 
         assertThat(webhook(capturedBody(orderId, "pay_lost", 240000)).getBody()).isEqualTo("DUPLICATE");
+    }
+
+    /**
+     * One row per Pay Now, every day, for ever — unless something removes them.
+     * A week, matching the travel dates booking-service keeps, so nothing can ask
+     * about a payment whose booking is already gone.
+     */
+    @Test
+    void payments_older_than_the_window_are_deleted() throws Exception {
+        createOrder(5512, "OLD", 240000);
+        createOrder(77, "RECENT", 90000);
+        // created_at is set by the database, so age it by hand
+        jdbc.execute("UPDATE payment SET created_at = now() - interval '30 days' "
+                + "WHERE request_id = 'OLD'");
+
+        int removed = purgeJob.purgeBefore(OffsetDateTime.now().minusDays(7));
+
+        assertThat(removed).isEqualTo(1);
+        assertThat(paymentRepo.findByUserIdAndRequestId(5512L, "OLD")).as("a month gone").isEmpty();
+        assertThat(paymentRepo.findByUserIdAndRequestId(77L, "RECENT")).as("still inside the week").isPresent();
     }
 
     // ---------- helpers ----------

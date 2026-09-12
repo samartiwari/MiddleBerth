@@ -52,6 +52,8 @@ spec:
               valueFrom: {secretKeyRef: {name: middleberth-secrets, key: POSTGRES_PASSWORD}}
             - name: SPRING_KAFKA_BOOTSTRAP_SERVERS
               valueFrom: {configMapKeyRef: {name: middleberth-config, key: KAFKA_BOOTSTRAP}}
+            - name: REDIS_HOST
+              valueFrom: {configMapKeyRef: {name: middleberth-config, key: REDIS_HOST}}
             - {name: PAYMENT_URL, value: "http://payment-service:8083"}
             # The JVM inside a container must be told what it may use, or it sizes
             # the heap from the whole machine and gets killed for going over.

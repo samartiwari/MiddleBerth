@@ -72,6 +72,13 @@ public class ApiExceptionHandler {
                 "Could not accept the request — nothing was booked, try again with the same requestId");
     }
 
+    /** The date is not open yet. Nothing is wrong with the request — come back later. */
+    @ExceptionHandler(NotOnSaleException.class)
+    @ResponseStatus(HttpStatus.CONFLICT)
+    public ApiError notOnSale(NotOnSaleException e) {
+        return new ApiError("NOT_ON_SALE", e.getMessage());
+    }
+
     /** A ticket that has already gone, one way or another. */
     @ExceptionHandler(NotCancellableException.class)
     @ResponseStatus(HttpStatus.CONFLICT)

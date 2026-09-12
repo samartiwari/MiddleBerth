@@ -12,8 +12,7 @@ import java.time.Instant;
  * { "status": "REGRETTED" }
  *
  * PENDING is not a BookingStatus — there is no row in the database yet. It only
- * exists at this layer, which is why this is its own type rather than a reuse of
- * BookingResponse.
+ * exists at this layer, which is why it is a String here rather than the enum.
  */
 @JsonInclude(JsonInclude.Include.NON_NULL)
 public record BookingStatusResponse(String status, String seat, Integer position, Instant payBy,

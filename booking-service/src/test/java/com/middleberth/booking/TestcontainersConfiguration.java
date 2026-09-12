@@ -4,6 +4,7 @@ import org.springframework.boot.test.context.TestConfiguration;
 import org.springframework.boot.testcontainers.service.connection.ServiceConnection;
 import org.springframework.context.annotation.Bean;
 import org.springframework.test.context.DynamicPropertyRegistrar;
+import org.testcontainers.containers.GenericContainer;
 import org.testcontainers.containers.PostgreSQLContainer;
 import org.testcontainers.kafka.KafkaContainer;
 import org.testcontainers.utility.DockerImageName;
@@ -12,6 +13,17 @@ import java.time.Duration;
 
 @TestConfiguration(proxyBeanMethods = false)
 class TestcontainersConfiguration {
+
+	/**
+	 * The polled answer is cached here. Without a real Redis the tests would
+	 * silently always miss the cache and prove nothing about it.
+	 */
+	@Bean
+	@ServiceConnection(name = "redis")
+	GenericContainer<?> redisContainer() {
+		return new GenericContainer<>(DockerImageName.parse("redis:7-alpine"))
+				.withExposedPorts(6379);
+	}
 
 	@Bean
 	@ServiceConnection

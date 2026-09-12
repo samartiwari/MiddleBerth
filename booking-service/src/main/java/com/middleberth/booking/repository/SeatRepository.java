@@ -69,6 +69,17 @@ public interface SeatRepository extends JpaRepository<Seat, Long> {
             """, nativeQuery = true)
     List<SeatCountRow> freeCountsFromToday();
 
+    /**
+     * Is this date on sale at all? Asked at the door, before the request is
+     * queued, so a date nobody has opened yet gets a straight answer instead of
+     * travelling through Kafka to come back as "sorry, full".
+     *
+     * EXISTS rather than a count: it stops at the first row, and the index on
+     * (train_id, travel_date, coach_class, status) covers it.
+     */
+    boolean existsByTrainIdAndTravelDateAndCoachClass(Long trainId, LocalDate travelDate,
+                                                      String coachClass);
+
     int countByTrainIdAndTravelDateAndCoachClassAndStatus(Long trainId,
                                                           LocalDate travelDate,
                                                           String coachClass,

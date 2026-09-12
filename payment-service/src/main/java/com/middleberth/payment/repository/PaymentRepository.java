@@ -18,6 +18,9 @@ public interface PaymentRepository extends JpaRepository<Payment, Long> {
 
     Optional<Payment> findByOrderId(String orderId);
 
+    /** Everything older than the window, in one statement. */
+    int deleteByCreatedAtBefore(OffsetDateTime cutoff);
+
     /** Orders nobody has paid for yet, created within a window — for the reconciliation job. */
     List<Payment> findByStatusAndCreatedAtBetween(PaymentStatus status, OffsetDateTime from, OffsetDateTime to);
 

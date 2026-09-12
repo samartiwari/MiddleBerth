@@ -38,6 +38,14 @@
 			<artifactId>spring-kafka</artifactId>
 		</dependency>
 
+		<!-- The answer a waiting page polls for, cached. Every poll used to be a
+		     query against the same database the consumer needs for claiming
+		     berths — about fifty thousand of them in one load run. -->
+		<dependency>
+			<groupId>org.springframework.boot</groupId>
+			<artifactId>spring-boot-starter-data-redis</artifactId>
+		</dependency>
+
 		<dependency>
 			<groupId>org.flywaydb</groupId>
 			<artifactId>flyway-core</artifactId>

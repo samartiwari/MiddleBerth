@@ -136,6 +136,7 @@ services:
       SPRING_DATASOURCE_USERNAME: middleberth
       SPRING_DATASOURCE_PASSWORD: ${POSTGRES_PASSWORD:-middleberth}
       SPRING_KAFKA_BOOTSTRAP_SERVERS: kafka:9092
+      REDIS_HOST: redis
       PAYMENT_URL: http://payment-service:8083
       # A minute, not the five-minute default. On a fresh start the first snapshot
       # runs before the seeder has created any berths, so search answers UNKNOWN
@@ -150,6 +151,7 @@ services:
     depends_on:
       booking-db: {condition: service_healthy}
       kafka: {condition: service_healthy}
+      redis: {condition: service_healthy}
 
   search-service:
     <<: *java

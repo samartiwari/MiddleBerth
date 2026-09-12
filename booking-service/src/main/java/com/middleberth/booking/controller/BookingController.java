@@ -51,7 +51,9 @@ public class BookingController {
     @ResponseStatus(HttpStatus.ACCEPTED)
     public CompletableFuture<BookingAccepted> book(@RequestHeader(USER_ID) Long userId,
                                                    @Valid @RequestBody BookingRequest request) {
-        bookingService.assertTrainExists(request.trainNumber());   // 404 now, not silence later
+        // 404 for a train that does not exist, 409 for a date that is not open —
+        // both at the door, so neither wastes a trip through the queue.
+        bookingService.assertOnSale(request.trainNumber(), request.travelDate(), request.coachClass());
 
         // 202 only once the broker has really taken it — but the thread is not
         // held while that happens. Returning the future lets Spring release the

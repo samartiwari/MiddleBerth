@@ -1,6 +1,7 @@
 package com.middleberth.notification;
 
 import com.middleberth.notification.repository.SentMailRepository;
+import com.middleberth.notification.service.PurgeJob;
 import com.middleberth.notification.send.LoggingNotifier;
 import com.middleberth.notification.send.Mail;
 import org.apache.kafka.clients.producer.KafkaProducer;
@@ -18,6 +19,7 @@ import org.springframework.context.annotation.Import;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.Duration;
+import java.time.OffsetDateTime;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -38,6 +40,7 @@ class MailTest {
     @Autowired SentMailRepository sentMailRepo;
     @Autowired LoggingNotifier notifier;
     @Autowired KafkaConnectionDetails kafka;
+    @Autowired PurgeJob purgeJob;
 
     @BeforeEach
     void seed() {
@@ -99,6 +102,22 @@ class MailTest {
         assertThat(awaitMails(1)).singleElement().satisfies(mail ->
                 assertThat(mail.to()).isEqualTo("passenger999@example.invalid"));
         assertThat(sentMailRepo.count()).as("nothing written down for the one with no address").isEqualTo(1);
+    }
+
+    /**
+     * The record of a sent mail is kept only as long as Kafka keeps the message
+     * that could duplicate it. Beyond that it is dead weight.
+     */
+    @Test
+    void records_older_than_kafkas_memory_are_deleted() throws Exception {
+        publish("5512|A7X2", Files.readString(Path.of("../contracts/booking-event.json")));
+        awaitMails(1);
+        assertThat(sentMailRepo.count()).isEqualTo(1);
+
+        int removed = purgeJob.purgeBefore(OffsetDateTime.now().plusDays(1));   // as if a week had passed
+
+        assertThat(removed).isEqualTo(1);
+        assertThat(sentMailRepo.count()).isZero();
     }
 
     // ---------- helpers ----------
