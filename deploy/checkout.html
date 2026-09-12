@@ -1,0 +1,51 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>MiddleBerth — pay</title>
+<style>
+  body { font: 15px/1.6 system-ui, sans-serif; max-width: 34rem; margin: 4rem auto; padding: 0 1rem; }
+  dt { font-weight: 600; margin-top: .6rem; }
+  dd { margin: 0; font-family: ui-monospace, monospace; }
+  button { font: inherit; padding: .6rem 1.2rem; margin-top: 1.5rem; cursor: pointer; }
+  .note { color: #666; font-size: .9em; margin-top: 2rem; }
+</style>
+
+<h1>Pay for your berth</h1>
+
+<p>This opens Razorpay's real checkout in <strong>test mode</strong>. No money moves.
+Use card <code>4111 1111 1111 1111</code>, any future expiry, any CVV.</p>
+
+<dl id="details"></dl>
+<button id="pay">Open Razorpay checkout</button>
+
+<p class="note">Close this tab when you are done. The script in the terminal is
+watching for the payment and will carry on by itself.</p>
+
+<script src="https://checkout.razorpay.com/v1/checkout.js"></script>
+<script>
+  // Everything comes from the URL, so nothing about an account is baked into this
+  // file. The script that opens it got these from our own /pay endpoint.
+  const q = new URLSearchParams(location.search);
+  const keyId = q.get('key');
+  const orderId = q.get('order');
+  const amount = Number(q.get('amount'));
+
+  document.getElementById('details').innerHTML = `
+    <dt>Order</dt><dd>${orderId}</dd>
+    <dt>Amount</dt><dd>₹${(amount / 100).toFixed(2)}</dd>
+    <dt>Key</dt><dd>${keyId}</dd>`;
+
+  document.getElementById('pay').onclick = () => {
+    new Razorpay({
+      key: keyId,
+      order_id: orderId,
+      amount: amount,
+      currency: 'INR',
+      name: 'MiddleBerth',
+      description: 'Tatkal berth',
+      handler: () => {
+        document.body.insertAdjacentHTML('beforeend',
+          '<p><strong>Paid.</strong> Go back to the terminal — it is waiting.</p>');
+      },
+    }).open();
+  };
+</script>
