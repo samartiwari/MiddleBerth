@@ -125,13 +125,20 @@ class PayNowTest {
         assertThat(res.getBody()).contains("CONFIRMED");
     }
 
+    /**
+     * A regret leaves no row, so there is not even a booking to refuse payment
+     * for — the answer is 404, not 409. That is the honest one: we are not saying
+     * "this booking cannot be paid for", we are saying there is no booking.
+     */
     @Test
     void a_regretted_booking_has_nothing_to_pay_for() {
         book("A", 1);                                    // berth
         book("B", 2);                                    // the one waitlist slot
         assertThat(book("C", 3)).isEqualTo(BookingStatus.REGRETTED);
 
-        assertThat(payNow("C", 3).getStatusCode()).isEqualTo(HttpStatus.CONFLICT);
+        assertThat(payNow("C", 3).getStatusCode()).isEqualTo(HttpStatus.NOT_FOUND);
+        assertThat(bookingRepo.findByUserIdAndRequestId(3L, "C"))
+                .as("nothing was written down").isEmpty();
     }
 
     @Test

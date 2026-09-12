@@ -74,8 +74,11 @@ class BookingServiceConcurrencyTest {
         assertThat(held).allMatch(r -> r.payBy() != null);
         assertThat(waitlist).allMatch(r -> r.payBy() != null);
 
-        // and the database agrees
-        assertThat(bookingRepo.count()).isEqualTo(PEOPLE);
+        // And the database agrees — but only about the people who got something.
+        // 500 answers, 48 rows. A regret holds no berth, no number and no money,
+        // so it is told to the person and written down nowhere.
+        assertThat(bookingRepo.count()).as("only the 48 who got something")
+                .isEqualTo(2 * SEATS);
         assertThat(seatRepo.findAll()).allMatch(s -> s.getStatus() == SeatStatus.HELD);
 
         // Waitlist numbers are now ASSERTED, not just reported. This test calls the

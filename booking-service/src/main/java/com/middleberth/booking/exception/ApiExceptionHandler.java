@@ -79,6 +79,16 @@ public class ApiExceptionHandler {
         return new ApiError("NOT_ON_SALE", e.getMessage());
     }
 
+    /**
+     * Berths gone, waitlist gone. Answered here rather than after a trip through
+     * the queue, and nothing is written down — there is no booking to record.
+     */
+    @ExceptionHandler(WaitlistFullException.class)
+    @ResponseStatus(HttpStatus.CONFLICT)
+    public ApiError waitlistFull(WaitlistFullException e) {
+        return new ApiError("WAITLIST_FULL", e.getMessage());
+    }
+
     /** A ticket that has already gone, one way or another. */
     @ExceptionHandler(NotCancellableException.class)
     @ResponseStatus(HttpStatus.CONFLICT)

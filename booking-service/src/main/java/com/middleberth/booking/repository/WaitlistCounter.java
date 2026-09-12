@@ -42,6 +42,28 @@ public class WaitlistCounter {
     }
 
     /**
+     * Is there nothing left at all — no berth, no waitlist place?
+     *
+     * Read at the door, to turn somebody away before their request costs anything.
+     * One row, found by its unique key.
+     *
+     * A full waitlist also means no berth can be free, which is why this single
+     * check is enough. A berth given up by anybody — an expired hold, a
+     * cancellation — goes straight to the next paid waitlister inside the same
+     * transaction. It only returns to FREE when nobody is waiting, and with a full
+     * waitlist somebody always is.
+     *
+     * No counter row yet means nobody has been waitlisted yet, so there is room.
+     */
+    public boolean isFull(long trainId, LocalDate travelDate, String coachClass) {
+        return !jdbc.queryForList("""
+                SELECT 1 FROM quota_counter
+                 WHERE train_id = ? AND travel_date = ? AND coach_class = ?
+                   AND wl_live >= wl_cap
+                """, Integer.class, trainId, travelDate, coachClass).isEmpty();
+    }
+
+    /**
      * A slot freed up — someone's waitlist hold expired, or they were promoted to
      * a berth. Only wl_live goes down; wl_issued never does, so no number is ever
      * handed out twice.

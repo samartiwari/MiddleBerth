@@ -25,7 +25,11 @@ WHERE waitlist_pos IS NOT NULL AND status IN ('WAITLIST_HELD', 'WAITLISTED')
 GROUP BY train_id, travel_date, coach_class, waitlist_pos
 HAVING count(*) > 1;
 
-\echo '== 4. what everyone got'
+\echo '== 4. what everyone got (REGRETTED will not appear — it is never stored)'
+-- Most of a tatkal rush gets nothing, and nothing is what gets written for them.
+-- A regret holds no berth, no waitlist number and no money, so the row would have
+-- said only "no" — at the cost of keeping a name, an email and a phone number.
+-- The rows below are the people who actually got something.
 SELECT status, count(*) FROM booking GROUP BY status ORDER BY count DESC;
 
 \echo '== 5. berths: taken vs free'

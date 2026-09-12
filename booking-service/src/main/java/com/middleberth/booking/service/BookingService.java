@@ -7,10 +7,12 @@ import com.middleberth.booking.cache.OutcomeCache;
 import com.middleberth.booking.dto.BookingCommand;
 import com.middleberth.booking.exception.NotOnSaleException;
 import com.middleberth.booking.exception.TrainNotFoundException;
+import com.middleberth.booking.exception.WaitlistFullException;
 import com.middleberth.booking.dto.BookingResult;
 import com.middleberth.booking.repository.BookingRepository;
 import com.middleberth.booking.repository.SeatRepository;
 import com.middleberth.booking.repository.TrainRepository;
+import com.middleberth.booking.repository.WaitlistCounter;
 import lombok.RequiredArgsConstructor;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.stereotype.Service;
@@ -26,6 +28,7 @@ public class BookingService {
     private final SeatRepository seatRepo;
     private final BookingRepository bookingRepo;
     private final BookingTransaction bookingTransaction;
+    private final WaitlistCounter waitlistCounter;
     private final SeatCountAnnouncer announcer;
     private final OutcomeCache outcomes;
 
@@ -46,6 +49,7 @@ public class BookingService {
         try {
             BookingResult result = bookingTransaction.claimOrWaitlist(cmd, trainId);
             publishSeatCount(cmd, trainId, result);
+            rememberIfRegretted(cmd, result);
             return result;
         } catch (DataIntegrityViolationException duplicate) {
             // Somebody else got there with the same request id. Their row is
@@ -53,6 +57,22 @@ public class BookingService {
             return bookingRepo.findByUserIdAndRequestId(cmd.userId(), cmd.requestId())
                     .map(this::toResult)
                     .orElseThrow(() -> duplicate);
+        }
+    }
+
+    /**
+     * A regret leaves no row, so the only place the waiting page can learn about
+     * it is Redis. Kept for much longer than an ordinary cached answer, because it
+     * is not a snapshot of something that might change — it is the final word, and
+     * it can never go stale.
+     *
+     * If Redis loses it anyway, the page stops hearing anything and eventually
+     * gives up. That is survivable: asking again gets an immediate WAITLIST_FULL
+     * from the door, which is the same answer by a different route.
+     */
+    private void rememberIfRegretted(BookingCommand cmd, BookingResult result) {
+        if (result.status() == BookingStatus.REGRETTED) {
+            outcomes.putRegret(cmd.userId(), cmd.requestId());
         }
     }
 
@@ -71,29 +91,36 @@ public class BookingService {
     }
 
     /**
-     * Checked at the door, before the request is queued. Rejecting a nonsense
-     * train here costs one indexed lookup; accepting it means the consumer
-     * silently drops it later and the user polls PENDING forever.
+     * Three indexed reads at the door, and every one of them earns its place by
+     * saving a pointless trip through the queue:
+     *
+     *   no such train      -> 404, rather than silence and PENDING for ever
+     *   date not open yet  -> 409, rather than being queued and answered "full",
+     *                         which is what it looked like before, because no
+     *                         berths means no waitlist either
+     *   nothing left       -> 409, rather than a full transaction to find out
+     *
+     * The last one is the one that carries weight under load. In the 2,000-person
+     * run, two thirds of the traffic could never have been given anything, and all
+     * of it used to queue, get consumed, take a transaction and write a row to say
+     * so. Now it is turned away in a single read.
+     *
+     * All three are checked before the request is queued, which means this is the
+     * only place in the system where the answer "no" is allowed to be a guess —
+     * the counter can fill in the moment after it is read. That is fine: the
+     * consumer checks again for real, atomically, and the worst case is a request
+     * that gets in and is regretted a second later.
      */
-    public void assertTrainExists(String trainNumber) {
-        if (trainRepo.findByNumber(trainNumber).isEmpty()) {
-            throw new TrainNotFoundException(trainNumber);
-        }
-    }
-
-    /**
-     * Two indexed lookups at the door, and both earn their place: a nonsense train
-     * is a 404 now rather than silence later, and a date that has not opened is
-     * told so rather than being queued, processed, and answered "sorry, full" —
-     * which is what it looked like before, because no berths means no waitlist
-     * either.
-     */
-    public void assertOnSale(String trainNumber, LocalDate travelDate, String coachClass) {
+    public void assertBookable(String trainNumber, LocalDate travelDate, String coachClass) {
         Long trainId = trainRepo.findByNumber(trainNumber)
                 .orElseThrow(() -> new TrainNotFoundException(trainNumber)).getId();
 
         if (!seatRepo.existsByTrainIdAndTravelDateAndCoachClass(trainId, travelDate, coachClass)) {
             throw new NotOnSaleException(trainNumber, travelDate, coachClass);
+        }
+
+        if (waitlistCounter.isFull(trainId, travelDate, coachClass)) {
+            throw new WaitlistFullException(trainNumber, travelDate, coachClass);
         }
     }
 

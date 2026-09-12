@@ -71,9 +71,20 @@ class BookingTransaction {
             return BookingResult.waitlistHeld(number.get(), payBy);
         }
 
-        bookingRepo.saveAndFlush(Booking.regretted(
-                cmd.requestId(), cmd.userId(), trainId, cmd.travelDate(), cmd.coachClass(),
-                snapshotOf(cmd)));
+        // Nothing is written. A regret holds no berth, no waitlist number and no
+        // money, so there is nothing about it worth keeping — it used to be a row
+        // whose whole content was the word "no". The answer goes to the person
+        // asking and nowhere else.
+        //
+        // Almost nobody gets here any more: the door turns them away before the
+        // queue. This is only for the few who were told there was room and lost it
+        // in the seconds between.
+        //
+        // With no row there is also no UNIQUE constraint holding this request id,
+        // so a redelivered message is free to try again — and if a slot has opened
+        // up by then, that person gets it instead of their old "no". That is fine,
+        // and arguably better: the id still cannot produce two bookings, because
+        // the moment it produces one, the constraint exists.
         return BookingResult.regretted();
     }
 

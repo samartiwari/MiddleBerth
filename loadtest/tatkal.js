@@ -39,6 +39,9 @@ const confirmTime = new Trend('payment_to_confirmed_ms', true);
 const heldCount = new Counter('outcome_held');
 const waitlistedCount = new Counter('outcome_waitlisted');
 const regrettedCount = new Counter('outcome_regretted');
+// Of those, the ones turned away by the door before anything was queued. The
+// cheapest request in the system: one read, no message, no row.
+const doorRegrets = new Counter('outcome_regretted_at_door');
 const undecided = new Counter('outcome_never_decided');
 const alreadyDone = new Counter('outcome_already_booked');
 const rateLimited = new Counter('rate_limited_429');
@@ -119,7 +122,20 @@ export default function () {
     }), { headers: auth, tags: { name: 'book' } });
 
     if (accepted.status === 429) { rateLimited.add(1); return; }
-    check(accepted, { 'booking accepted (202)': r => r.status === 202 });
+
+    // 409 WAITLIST_FULL is a real answer, not a failure — the berths and the
+    // waitlist are both gone and the door said so without queueing anything. It is
+    // also the fastest "no" in the system: one read, no Kafka, no row. Counted as
+    // a regret, because that is what it is.
+    if (accepted.status === 409 && accepted.body.includes('WAITLIST_FULL')) {
+        decided.add(true);
+        decisionTime.add(Date.now() - started);
+        regrettedCount.add(1);
+        doorRegrets.add(1);
+        return;
+    }
+
+    check(accepted, { 'booking answered (202 or 409)': r => r.status === 202 || r.status === 409 });
     if (accepted.status !== 202) return;
 
     // The page polls, exactly like a real one would.

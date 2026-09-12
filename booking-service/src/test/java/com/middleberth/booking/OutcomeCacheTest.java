@@ -86,6 +86,27 @@ class OutcomeCacheTest {
                 .as("answered from Redis, not from the row that is gone").isPresent();
     }
 
+    /**
+     * The one answer Redis does not merely cache — it holds it outright.
+     *
+     * A regret has no berth, no waitlist number and no money in it, so it is never
+     * written to Postgres. Deleting every booking row changes nothing about what
+     * the polling page is told, because the answer was never in a row.
+     */
+    @Test
+    void a_regret_is_answered_from_redis_because_it_was_never_written_down() {
+        bookingService.book(new BookingCommand("A", 1L, "12951", DATE, "3A", TestPassenger.SOMEONE));
+        bookingService.book(new BookingCommand("B", 2L, "12951", DATE, "3A", TestPassenger.SOMEONE));
+
+        var regret = bookingService.book(new BookingCommand("C", 3L, "12951", DATE, "3A", TestPassenger.SOMEONE));
+
+        assertThat(regret.status()).isEqualTo(BookingStatus.REGRETTED);
+        assertThat(bookingRepo.count()).as("a berth and a waitlist place, nothing for the regret")
+                .isEqualTo(2);
+        assertThat(bookingService.outcomeOf(3L, "C").orElseThrow().status())
+                .as("still answered, with no row anywhere").isEqualTo(BookingStatus.REGRETTED);
+    }
+
     /** Nothing is cached for a request nobody has made, so PENDING stays honest. */
     @Test
     void an_unknown_request_is_not_cached_as_an_answer() {

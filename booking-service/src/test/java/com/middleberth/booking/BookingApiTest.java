@@ -159,11 +159,39 @@ class BookingApiTest {
                 .doesNotContain("HELD");
     }
 
+    /**
+     * Turned away at the door, in one read, before the queue.
+     *
+     * This only works once the queue has been worked through — the door reads a
+     * counter the consumer writes, so during the first instant of a rush it is
+     * still empty and everybody gets in. Which is right: a burst of simultaneous
+     * requests genuinely does not know yet who missed out. The door earns its keep
+     * on everything that comes after, and in a real tatkal rush that is nearly all
+     * of it — the berths are gone in seconds, the clicking goes on for minutes.
+     */
+    @Test
+    void once_the_train_is_full_the_door_says_so_without_touching_the_queue() {
+        for (int i = 0; i < 2 * SEATS; i++) {                  // fill berths and waitlist
+            post("FILL-" + i, 2000L + i, "12951");
+            awaitOutcome("FILL-" + i, 2000L + i, Duration.ofSeconds(30));
+        }
+        long rowsBefore = bookingRepo.count();
+
+        ResponseEntity<String> res = post("LATE", 9999L, "12951");
+
+        assertThat(res.getStatusCode()).isEqualTo(HttpStatus.CONFLICT);
+        assertThat(res.getBody()).contains("WAITLIST_FULL");
+        assertThat(bookingRepo.count()).as("nothing was written to say no").isEqualTo(rowsBefore);
+        assertThat(poll("LATE", 9999L).getBody())
+                .as("never queued, so there is nothing to poll for").contains("PENDING");
+    }
+
     @Test
     void five_hundred_requests_through_kafka_never_double_book() throws Exception {
         CountDownLatch go = new CountDownLatch(1);
         CountDownLatch posted = new CountDownLatch(PEOPLE);
         Queue<Throwable> failures = new ConcurrentLinkedQueue<>();
+        Set<Integer> turnedAwayAtTheDoor = ConcurrentHashMap.newKeySet();
         ExecutorService pool = Executors.newFixedThreadPool(100);
 
         for (int i = 0; i < PEOPLE; i++) {
@@ -172,8 +200,12 @@ class BookingApiTest {
                 try {
                     go.await();
                     ResponseEntity<String> r = post("REQ-" + n, 1000L + n, "12951");
-                    if (r.getStatusCode() != HttpStatus.ACCEPTED) {
-                        failures.add(new AssertionError("expected 202, got " + r.getStatusCode()));
+                    // Two acceptable answers now. 202 means queued. 409 means the
+                    // door already knew the train was full — no message, no row.
+                    if (r.getStatusCode() == HttpStatus.CONFLICT) {
+                        turnedAwayAtTheDoor.add(n);
+                    } else if (r.getStatusCode() != HttpStatus.ACCEPTED) {
+                        failures.add(new AssertionError("expected 202 or 409, got " + r.getStatusCode()));
                     }
                 } catch (Throwable t) {
                     failures.add(t);
@@ -185,14 +217,16 @@ class BookingApiTest {
 
         long start = System.nanoTime();
         go.countDown();
-        assertThat(posted.await(120, TimeUnit.SECONDS)).as("all accepted").isTrue();
+        assertThat(posted.await(120, TimeUnit.SECONDS)).as("all answered").isTrue();
         long acceptedMs = (System.nanoTime() - start) / 1_000_000;
-        assertThat(failures).as("every POST returned 202").isEmpty();
+        assertThat(failures).as("every POST returned 202 or 409").isEmpty();
 
         // now wait for the consumer to work through the queue
         List<String> outcomes = new ArrayList<>();
         for (int i = 0; i < PEOPLE; i++) {
-            outcomes.add(awaitOutcome("REQ-" + i, 1000L + i, Duration.ofSeconds(60)));
+            outcomes.add(turnedAwayAtTheDoor.contains(i)
+                    ? "\"status\":\"REGRETTED\""                  // answered at the door
+                    : awaitOutcome("REQ-" + i, 1000L + i, Duration.ofSeconds(60)));
         }
         long totalMs = (System.nanoTime() - start) / 1_000_000;
         pool.shutdownNow();
@@ -201,8 +235,10 @@ class BookingApiTest {
         List<String> waitlisted = outcomes.stream().filter(o -> o.contains("\"status\":\"WAITLIST_HELD\"")).toList();
         List<String> regretted = outcomes.stream().filter(o -> o.contains("\"status\":\"REGRETTED\"")).toList();
 
-        System.out.printf("%n%d POSTs accepted in %d ms; all processed by %d ms — %d HELD, %d WAITLIST_HELD, %d REGRETTED%n",
-                PEOPLE, acceptedMs, totalMs, held.size(), waitlisted.size(), regretted.size());
+        System.out.printf("%n%d POSTs answered in %d ms; all processed by %d ms — %d HELD, %d WAITLIST_HELD, "
+                        + "%d REGRETTED (%d of them at the door)%n",
+                PEOPLE, acceptedMs, totalMs, held.size(), waitlisted.size(), regretted.size(),
+                turnedAwayAtTheDoor.size());
 
         assertThat(held).hasSize(SEATS);
         assertThat(waitlisted).as("waitlist capped at the number of berths").hasSize(SEATS);
@@ -215,7 +251,11 @@ class BookingApiTest {
                 .map(o -> o.replaceAll(".*\"seat\":\"([^\"]+)\".*", "$1")).toList();
         assertThat(new HashSet<>(seats)).as("distinct berths").hasSize(SEATS);
 
-        assertThat(bookingRepo.count()).isEqualTo(PEOPLE);
+        // 500 people answered, 48 rows. The 452 who got nothing are told so and
+        // written down nowhere — a regret has no berth, no number and no money in
+        // it, so there was never anything in that row but the word "no".
+        assertThat(bookingRepo.count()).as("only the people who got something")
+                .isEqualTo(2 * SEATS);
         assertThat(seatRepo.findAll()).allMatch(s -> s.getStatus() == SeatStatus.HELD);
 
         List<Integer> positions = waitlisted.stream()

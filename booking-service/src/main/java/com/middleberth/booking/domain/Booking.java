@@ -102,18 +102,11 @@ public class Booking {
         return b;
     }
 
-    /**
-     * The waitlist was full. Written anyway so the page polling for this request
-     * can be told REGRET — the API is asynchronous, so the answer has to be
-     * stored somewhere. No seat, no position, no deadline.
-     */
-    public static Booking regretted(String requestId, Long userId, Long trainId,
-                                    LocalDate travelDate, String coachClass,
-                                    PassengerSnapshot passenger) {
-        Booking b = base(requestId, userId, trainId, travelDate, coachClass, passenger);
-        b.status = BookingStatus.REGRETTED;
-        return b;
-    }
+    // There is no factory for a regret. It used to write a row here so the polling
+    // page had somewhere to read the answer from, which meant storing a person's
+    // name, email and phone number to record that they got nothing. The answer
+    // lives in Redis now, and almost nobody reaches this point at all — the door
+    // turns them away before the queue.
 
     // ---------- the lifecycle ----------
 

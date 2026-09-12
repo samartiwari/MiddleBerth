@@ -3,8 +3,9 @@
 --   3A  24 berths   SL  72 berths      x 5 trains = 480 berths
 --
 -- The waitlist cap equals the berth count, so about 960 people can get an answer
--- that is not "sorry". Anyone after that is REGRETTED, which is exactly what
--- tatkal looks like at 10:00:01.
+-- that is not "sorry". Anyone after that is turned away at the door, in one read,
+-- with nothing queued and nothing written down — which is exactly what tatkal
+-- looks like at 10:00:01, and most of the traffic.
 --
 -- Safe to run again.
 

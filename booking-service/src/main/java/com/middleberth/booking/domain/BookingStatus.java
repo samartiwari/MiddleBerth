@@ -9,7 +9,9 @@ package com.middleberth.booking.domain;
  *   WAITLIST_HELD -- paid ----> WAITLISTED --- a berth frees up ---> CONFIRMED
  *     \------------- late ----> EXPIRED
  *
- *   REGRETTED   the waitlist was full, so nothing was held at all
+ *   REGRETTED   the waitlist was full, so nothing was held at all. The only
+ *               status that is never stored — there is no row to put it on. It is
+ *               an answer, not a booking.
  *   CANCELLED   the passenger gave it up. A berth goes straight to the next paid
  *               waitlister, exactly as when a hold expires, and paid money goes back.
  */

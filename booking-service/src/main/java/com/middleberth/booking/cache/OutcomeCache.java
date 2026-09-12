@@ -49,9 +49,25 @@ public class OutcomeCache {
     }
 
     public void put(Long userId, String requestId, BookingResult result) {
+        write(userId, requestId, result, settings.outcomeTtl());
+    }
+
+    /**
+     * The one answer that lives ONLY here.
+     *
+     * A regret holds no berth, no waitlist number and no money, so it is not
+     * written to the database at all — there would be nothing in the row but the
+     * word "no". Redis carries it instead, and for much longer than the few
+     * seconds an ordinary cached answer gets: a regret is final, so unlike a hold
+     * it cannot become wrong while it sits here.
+     */
+    public void putRegret(Long userId, String requestId) {
+        write(userId, requestId, BookingResult.regretted(), settings.regretTtl());
+    }
+
+    private void write(Long userId, String requestId, BookingResult result, Duration ttl) {
         try {
-            redis.opsForValue().set(key(userId, requestId), json.writeValueAsString(result),
-                    Duration.ofMillis(settings.outcomeTtl().toMillis()));
+            redis.opsForValue().set(key(userId, requestId), json.writeValueAsString(result), ttl);
         } catch (Exception e) {
             log.debug("Could not cache the outcome: {}", e.getMessage());
         }
