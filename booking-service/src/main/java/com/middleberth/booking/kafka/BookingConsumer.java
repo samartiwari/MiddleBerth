@@ -15,6 +15,9 @@ import org.springframework.stereotype.Component;
  * its records one at a time. So for any given train, bookings are processed
  * sequentially — which is where the fairness comes from, and why the waitlist
  * counter has nothing to race against.
+ *
+ * A request that keeps failing is retried for about two minutes and then parked
+ * on booking-requests.DLT — never dropped. See BookingRequestsConfig.
  */
 @Component
 @RequiredArgsConstructor
@@ -23,7 +26,9 @@ public class BookingConsumer {
 
     private final BookingService bookingService;
 
-    @KafkaListener(topics = KafkaTopicConfig.BOOKING_REQUESTS, groupId = "booking-service")
+    @KafkaListener(topics = KafkaTopicConfig.BOOKING_REQUESTS,
+                   groupId = "booking-service",
+                   containerFactory = "bookingRequestsFactory")
     public void handle(BookingCommand command) {
         try {
             bookingService.book(command);

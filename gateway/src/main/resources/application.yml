@@ -90,3 +90,10 @@ spring:
               predicates:
                 - Path=/webhooks/razorpay
                 - Method=POST
+
+management:
+  endpoints:
+    web:
+      exposure:
+        # health for the probes, metrics so anything worth alerting on is reachable
+        include: health,info,metrics
