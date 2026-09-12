@@ -1,0 +1,256 @@
+# The whole system on one machine.
+#
+# Only nginx has a published port. Everything else is reachable by name on this
+# private network and nowhere else — if any service published a port, someone
+# could talk to it directly and skip the gateway's login and rate limiting
+# entirely.
+#
+#   internet -> nginx :80 -> gateway :8000 -> the four services
+#
+# This is the demo setup, NOT the benchmark. The k6 numbers in the README come
+# from Kubernetes on a 16-thread laptop; this runs one copy of everything.
+
+name: middleberth
+
+x-postgres: &postgres
+  image: postgres:16-alpine
+  environment:
+    POSTGRES_USER: middleberth
+    POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-middleberth}
+  healthcheck:
+    test: ["CMD-SHELL", "pg_isready -U middleberth"]
+    interval: 5s
+    timeout: 3s
+    retries: 20
+  restart: unless-stopped
+
+# Every service waits for its database and for Kafka. Without this they start
+# faster than Postgres can accept connections and crash-loop for the first minute.
+x-java: &java
+  restart: unless-stopped
+
+services:
+
+  # ---------- the databases: one per service, nobody reads anyone else's ----------
+
+  booking-db:
+    <<: *postgres
+    environment:
+      POSTGRES_USER: middleberth
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-middleberth}
+      POSTGRES_DB: booking
+    volumes:
+      - booking-data:/var/lib/postgresql/data
+
+  search-db:
+    <<: *postgres
+    environment:
+      POSTGRES_USER: middleberth
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-middleberth}
+      POSTGRES_DB: search
+    volumes:
+      - search-data:/var/lib/postgresql/data
+
+  payment-db:
+    <<: *postgres
+    environment:
+      POSTGRES_USER: middleberth
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-middleberth}
+      POSTGRES_DB: payment
+    volumes:
+      - payment-data:/var/lib/postgresql/data
+
+  notification-db:
+    <<: *postgres
+    environment:
+      POSTGRES_USER: middleberth
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-middleberth}
+      POSTGRES_DB: notification
+    volumes:
+      - notification-data:/var/lib/postgresql/data
+
+  # ---------- the queue and the cache ----------
+
+  kafka:
+    image: apache/kafka:3.8.0
+    environment:
+      # One node being both broker and controller. Fine for a demo; a real cluster
+      # separates them and runs at least three.
+      KAFKA_NODE_ID: 1
+      KAFKA_PROCESS_ROLES: broker,controller
+      KAFKA_LISTENERS: PLAINTEXT://0.0.0.0:9092,CONTROLLER://0.0.0.0:9093
+      # What clients are told to connect to. It must be the name other containers
+      # can reach — 0.0.0.0 here is what breaks a Kafka container silently.
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka:9092
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: CONTROLLER:PLAINTEXT,PLAINTEXT:PLAINTEXT
+      KAFKA_CONTROLLER_LISTENER_NAMES: CONTROLLER
+      KAFKA_CONTROLLER_QUORUM_VOTERS: 1@kafka:9093
+      KAFKA_INTER_BROKER_LISTENER_NAME: PLAINTEXT
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: 1
+      KAFKA_GROUP_INITIAL_REBALANCE_DELAY_MS: 0
+      CLUSTER_ID: middleberth-single-node
+    healthcheck:
+      test: ["CMD-SHELL", "/opt/kafka/bin/kafka-topics.sh --bootstrap-server localhost:9092 --list"]
+      interval: 10s
+      timeout: 10s
+      retries: 20
+    restart: unless-stopped
+
+  redis:
+    image: redis:7-alpine
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+    restart: unless-stopped
+
+  # ---------- the services ----------
+
+  booking-service:
+    <<: *java
+    build: ./booking-service
+    environment:
+      SPRING_DATASOURCE_URL: jdbc:postgresql://booking-db:5432/booking
+      SPRING_DATASOURCE_USERNAME: middleberth
+      SPRING_DATASOURCE_PASSWORD: ${POSTGRES_PASSWORD:-middleberth}
+      SPRING_KAFKA_BOOTSTRAP_SERVERS: kafka:9092
+      PAYMENT_URL: http://payment-service:8083
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:8080/actuator/health | grep -q UP"]
+      interval: 10s
+      timeout: 3s
+      retries: 30
+      start_period: 60s
+    depends_on:
+      booking-db: {condition: service_healthy}
+      kafka: {condition: service_healthy}
+
+  search-service:
+    <<: *java
+    build: ./search-service
+    environment:
+      SPRING_DATASOURCE_URL: jdbc:postgresql://search-db:5432/search
+      SPRING_DATASOURCE_USERNAME: middleberth
+      SPRING_DATASOURCE_PASSWORD: ${POSTGRES_PASSWORD:-middleberth}
+      SPRING_KAFKA_BOOTSTRAP_SERVERS: kafka:9092
+      SPRING_DATA_REDIS_HOST: redis
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:8081/actuator/health | grep -q UP"]
+      interval: 10s
+      timeout: 3s
+      retries: 30
+      start_period: 60s
+    depends_on:
+      search-db: {condition: service_healthy}
+      kafka: {condition: service_healthy}
+      redis: {condition: service_healthy}
+
+  payment-service:
+    <<: *java
+    build: ./payment-service
+    environment:
+      SPRING_DATASOURCE_URL: jdbc:postgresql://payment-db:5432/payment
+      SPRING_DATASOURCE_USERNAME: middleberth
+      SPRING_DATASOURCE_PASSWORD: ${POSTGRES_PASSWORD:-middleberth}
+      SPRING_KAFKA_BOOTSTRAP_SERVERS: kafka:9092
+      # stub = the fake gateway. Real Razorpay test mode needs keys, which do not
+      # belong in this file or this repository.
+      MIDDLEBERTH_RAZORPAY_MODE: ${RAZORPAY_MODE:-stub}
+      RAZORPAY_WEBHOOK_SECRET: ${RAZORPAY_WEBHOOK_SECRET:-dev-only-webhook-secret-not-for-real-use}
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:8083/actuator/health | grep -q UP"]
+      interval: 10s
+      timeout: 3s
+      retries: 30
+      start_period: 60s
+    depends_on:
+      payment-db: {condition: service_healthy}
+      kafka: {condition: service_healthy}
+
+  notification-service:
+    <<: *java
+    build: ./notification-service
+    environment:
+      SPRING_DATASOURCE_URL: jdbc:postgresql://notification-db:5432/notification
+      SPRING_DATASOURCE_USERNAME: middleberth
+      SPRING_DATASOURCE_PASSWORD: ${POSTGRES_PASSWORD:-middleberth}
+      SPRING_KAFKA_BOOTSTRAP_SERVERS: kafka:9092
+      # log = write the mail to the log. Set MAIL_MODE=smtp and spring.mail.* to
+      # actually send. A load test must never reach a mail server.
+      MAIL_MODE: ${MAIL_MODE:-log}
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:8084/actuator/health | grep -q UP"]
+      interval: 10s
+      timeout: 3s
+      retries: 30
+      start_period: 60s
+    depends_on:
+      notification-db: {condition: service_healthy}
+      kafka: {condition: service_healthy}
+
+  gateway:
+    <<: *java
+    build: ./gateway
+    environment:
+      BOOKING_URL: http://booking-service:8080
+      SEARCH_URL: http://search-service:8081
+      PAYMENT_URL: http://payment-service:8083
+      SPRING_DATA_REDIS_HOST: redis
+      # Anyone who knows this can mint tokens for any user. Set JWT_SECRET for
+      # anything that is not a laptop.
+      JWT_SECRET: ${JWT_SECRET:-dev-only-secret-change-me-it-must-be-32-bytes-or-more}
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:8000/actuator/health | grep -q UP"]
+      interval: 10s
+      timeout: 3s
+      retries: 30
+      start_period: 60s
+    depends_on:
+      redis: {condition: service_healthy}
+      booking-service: {condition: service_started}
+      search-service: {condition: service_started}
+      payment-service: {condition: service_started}
+
+  # ---------- the front door ----------
+
+  nginx:
+    image: nginx:alpine
+    ports:
+      - "${HTTP_PORT:-80}:80"
+    volumes:
+      - ./deploy/nginx.conf:/etc/nginx/conf.d/default.conf:ro
+    depends_on:
+      gateway: {condition: service_healthy}
+    restart: unless-stopped
+
+  # ---------- one train to book ----------
+
+  # Runs once and stops. It waits for the services to be healthy, because the
+  # tables do not exist until Flyway has run inside each of them.
+  seed:
+    image: postgres:16-alpine
+    environment:
+      PGPASSWORD: ${POSTGRES_PASSWORD:-middleberth}
+    volumes:
+      - ./deploy/seed-booking.sql:/seed-booking.sql:ro
+      - ./deploy/seed-notification.sql:/seed-notification.sql:ro
+    entrypoint: ["/bin/sh", "-c"]
+    # A LIST with one item, not a plain string: compose splits a string on spaces,
+    # which handed sh -c the word "psql" and nothing else.
+    command:
+      - >
+        psql -h booking-db -U middleberth -d booking -f /seed-booking.sql &&
+        psql -h notification-db -U middleberth -d notification -f /seed-notification.sql
+    depends_on:
+      booking-service: {condition: service_healthy}
+      notification-service: {condition: service_healthy}
+    restart: "no"
+
+volumes:
+  booking-data:
+  search-data:
+  payment-data:
+  notification-data:

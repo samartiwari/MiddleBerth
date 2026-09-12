@@ -21,3 +21,6 @@ initial.md
 zenith-idea-shelved.md
 LEARNING.md
 STEPS.md
+
+# Docker compose local overrides
+docker-compose.override.yml
