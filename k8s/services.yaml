@@ -55,7 +55,7 @@ spec:
             - {name: PAYMENT_URL, value: "http://payment-service:8083"}
             # The JVM inside a container must be told what it may use, or it sizes
             # the heap from the whole machine and gets killed for going over.
-            - {name: JAVA_TOOL_OPTIONS, value: "-XX:MaxRAMPercentage=70"}
+            - {name: JAVA_TOOL_OPTIONS, value: "-XX:MaxRAMPercentage=70 -Dnetworkaddress.cache.ttl=5"}
           startupProbe:
             httpGet: {path: /actuator/health, port: 8080}
             failureThreshold: 40
@@ -113,7 +113,7 @@ spec:
               valueFrom: {configMapKeyRef: {name: middleberth-config, key: REDIS_HOST}}
             # The JVM inside a container must be told what it may use, or it sizes
             # the heap from the whole machine and gets killed for going over.
-            - {name: JAVA_TOOL_OPTIONS, value: "-XX:MaxRAMPercentage=70"}
+            - {name: JAVA_TOOL_OPTIONS, value: "-XX:MaxRAMPercentage=70 -Dnetworkaddress.cache.ttl=5"}
           startupProbe:
             httpGet: {path: /actuator/health, port: 8081}
             failureThreshold: 40
@@ -173,7 +173,7 @@ spec:
               valueFrom: {secretKeyRef: {name: middleberth-secrets, key: RAZORPAY_WEBHOOK_SECRET}}
             # The JVM inside a container must be told what it may use, or it sizes
             # the heap from the whole machine and gets killed for going over.
-            - {name: JAVA_TOOL_OPTIONS, value: "-XX:MaxRAMPercentage=70"}
+            - {name: JAVA_TOOL_OPTIONS, value: "-XX:MaxRAMPercentage=70 -Dnetworkaddress.cache.ttl=5"}
           startupProbe:
             httpGet: {path: /actuator/health, port: 8083}
             failureThreshold: 40
@@ -231,7 +231,7 @@ spec:
               valueFrom: {configMapKeyRef: {name: middleberth-config, key: MAIL_MODE}}
             # The JVM inside a container must be told what it may use, or it sizes
             # the heap from the whole machine and gets killed for going over.
-            - {name: JAVA_TOOL_OPTIONS, value: "-XX:MaxRAMPercentage=70"}
+            - {name: JAVA_TOOL_OPTIONS, value: "-XX:MaxRAMPercentage=70 -Dnetworkaddress.cache.ttl=5"}
           startupProbe:
             httpGet: {path: /actuator/health, port: 8084}
             failureThreshold: 40
@@ -287,7 +287,7 @@ spec:
               valueFrom: {secretKeyRef: {name: middleberth-secrets, key: JWT_SECRET}}
             # The JVM inside a container must be told what it may use, or it sizes
             # the heap from the whole machine and gets killed for going over.
-            - {name: JAVA_TOOL_OPTIONS, value: "-XX:MaxRAMPercentage=70"}
+            - {name: JAVA_TOOL_OPTIONS, value: "-XX:MaxRAMPercentage=70 -Dnetworkaddress.cache.ttl=5"}
           startupProbe:
             httpGet: {path: /actuator/health, port: 8000}
             failureThreshold: 40

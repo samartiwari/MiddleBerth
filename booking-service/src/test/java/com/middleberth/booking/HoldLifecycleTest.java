@@ -242,7 +242,7 @@ class HoldLifecycleTest {
     }
 
     private BookingResult book(String requestId, long userId) {
-        return bookingService.book(new BookingCommand(requestId, userId, TRAIN, DATE, CLASS));
+        return bookingService.book(new BookingCommand(requestId, userId, TRAIN, DATE, CLASS, TestPassenger.SOMEONE));
     }
 
     private Booking booking(String requestId, long userId) {

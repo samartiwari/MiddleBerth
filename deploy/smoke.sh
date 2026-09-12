@@ -29,6 +29,16 @@ TOKEN=$(curl -fsS -X POST "$BASE/auth/token" -H 'Content-Type: application/json'
 [ -n "$TOKEN" ] || { echo "no token"; exit 1; }
 echo "ok"
 
+say "the master list: add a passenger, then read it back"
+# 201 the first time, 409 every time after — the same person is only on the list
+# once, and that is the point of it.
+curl -sS -X POST "$BASE/api/passengers" -H "Authorization: Bearer $TOKEN" \
+     -H 'Content-Type: application/json' \
+     -d '{"name":"Demo Passenger","email":"demo@middleberth.invalid","phone":"9876543210"}' \
+     -o /dev/null -w 'added: %{http_code} (409 = already on the list)\n'
+curl -fsS "$BASE/api/passengers" -H "Authorization: Bearer $TOKEN"
+echo
+
 say "search: $TRAIN on $DATE, 3A"
 curl -fsS "$BASE/api/trains/$TRAIN/availability?date=$DATE&class=3A"
 echo
@@ -36,7 +46,7 @@ echo
 say "book $REQUEST_ID"
 curl -fsS -X POST "$BASE/api/bookings" -H "Authorization: Bearer $TOKEN" \
      -H 'Content-Type: application/json' \
-     -d "{\"requestId\":\"$REQUEST_ID\",\"trainNumber\":\"$TRAIN\",\"travelDate\":\"$DATE\",\"coachClass\":\"3A\"}"
+     -d "{\"requestId\":\"$REQUEST_ID\",\"trainNumber\":\"$TRAIN\",\"travelDate\":\"$DATE\",\"coachClass\":\"3A\",\"passenger\":{\"name\":\"Demo Passenger\",\"email\":\"demo@middleberth.invalid\",\"phone\":\"9876543210\"}}"
 echo
 
 say "poll until it is decided"

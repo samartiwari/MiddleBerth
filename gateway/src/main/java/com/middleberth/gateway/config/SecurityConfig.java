@@ -29,6 +29,7 @@ public class SecurityConfig {
                         .pathMatchers("/webhooks/razorpay").permitAll()   // trusted by its signature, not a token
                         .pathMatchers("/actuator/health/**").permitAll()
                         .pathMatchers("/api/bookings/**").authenticated()
+                        .pathMatchers("/api/passengers/**").authenticated()
                         .anyExchange().denyAll())
                 .oauth2ResourceServer(o -> o.jwt(Customizer.withDefaults()))
                 .build();

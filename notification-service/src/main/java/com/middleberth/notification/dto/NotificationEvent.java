@@ -13,5 +13,7 @@ public record NotificationEvent(NotificationType type,
                                 LocalDate travelDate,
                                 String coachClass,
                                 String berth,
-                                String reason) {
+                                String reason,
+                                String passengerName,
+                                String passengerEmail) {
 }

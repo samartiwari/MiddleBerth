@@ -91,7 +91,7 @@ class PaymentEventRetryTest {
      */
     @Test
     void a_database_blip_is_ridden_out_and_the_booking_is_confirmed() {
-        bookingService.book(new BookingCommand("A7X2", 5512L, "12951", DATE, "3A"));
+        bookingService.book(new BookingCommand("A7X2", 5512L, "12951", DATE, "3A", TestPassenger.SOMEONE));
         Instant databaseBack = Instant.now().plusSeconds(8);
         doAnswer(call -> {
             if (Instant.now().isBefore(databaseBack)) {
@@ -107,7 +107,7 @@ class PaymentEventRetryTest {
 
     @Test
     void a_payment_that_keeps_failing_is_parked_on_the_dead_letter_topic_not_dropped() {
-        bookingService.book(new BookingCommand("A7X2", 5512L, "12951", DATE, "3A"));
+        bookingService.book(new BookingCommand("A7X2", 5512L, "12951", DATE, "3A", TestPassenger.SOMEONE));
         doThrow(new TransientDataAccessResourceException("database down for good"))
                 .when(payments).apply(any(), any(), any());
 

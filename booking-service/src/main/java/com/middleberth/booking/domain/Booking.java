@@ -69,9 +69,14 @@ public class Booking {
     @Column(name = "payment_started_at")
     private Instant paymentStartedAt;
 
+    /** Who the ticket is for, as it was when it was booked. */
+    @Embedded
+    private PassengerSnapshot passenger;
+
     public static Booking held(String requestId, Long userId, Long trainId,
-                               LocalDate travelDate, String coachClass, Long seatId, Instant payBy) {
-        Booking b = base(requestId, userId, trainId, travelDate, coachClass);
+                               LocalDate travelDate, String coachClass, PassengerSnapshot passenger,
+                               Long seatId, Instant payBy) {
+        Booking b = base(requestId, userId, trainId, travelDate, coachClass, passenger);
         b.seatId = seatId;
         b.status = BookingStatus.HELD;
         b.payBy = payBy;
@@ -79,9 +84,9 @@ public class Booking {
     }
 
     public static Booking waitlistHeld(String requestId, Long userId, Long trainId,
-                                       LocalDate travelDate, String coachClass, int position,
-                                       Instant payBy) {
-        Booking b = base(requestId, userId, trainId, travelDate, coachClass);
+                                       LocalDate travelDate, String coachClass,
+                                       PassengerSnapshot passenger, int position, Instant payBy) {
+        Booking b = base(requestId, userId, trainId, travelDate, coachClass, passenger);
         b.status = BookingStatus.WAITLIST_HELD;
         b.waitlistPos = position;
         b.payBy = payBy;
@@ -94,8 +99,9 @@ public class Booking {
      * stored somewhere. No seat, no position, no deadline.
      */
     public static Booking regretted(String requestId, Long userId, Long trainId,
-                                    LocalDate travelDate, String coachClass) {
-        Booking b = base(requestId, userId, trainId, travelDate, coachClass);
+                                    LocalDate travelDate, String coachClass,
+                                    PassengerSnapshot passenger) {
+        Booking b = base(requestId, userId, trainId, travelDate, coachClass, passenger);
         b.status = BookingStatus.REGRETTED;
         return b;
     }
@@ -171,13 +177,15 @@ public class Booking {
     }
 
     private static Booking base(String requestId, Long userId, Long trainId,
-                                LocalDate travelDate, String coachClass) {
+                                LocalDate travelDate, String coachClass,
+                                PassengerSnapshot passenger) {
         Booking b = new Booking();
         b.requestId = requestId;
         b.userId = userId;
         b.trainId = trainId;
         b.travelDate = travelDate;
         b.coachClass = coachClass;
+        b.passenger = passenger;
         return b;
     }
 }

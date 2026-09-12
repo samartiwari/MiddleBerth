@@ -150,7 +150,7 @@ class PayNowTest {
     // ---------- helpers ----------
 
     private BookingStatus book(String requestId, long userId) {
-        return bookingService.book(new BookingCommand(requestId, userId, "12951", DATE, "3A")).status();
+        return bookingService.book(new BookingCommand(requestId, userId, "12951", DATE, "3A", TestPassenger.SOMEONE)).status();
     }
 
     private ResponseEntity<String> payNow(String requestId, long userId) {

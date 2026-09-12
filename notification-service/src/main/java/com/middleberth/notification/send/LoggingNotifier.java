@@ -18,7 +18,15 @@ public class LoggingNotifier implements Notifier {
     @Override
     public void send(Mail mail) {
         sent.add(mail);
-        log.info("MAIL to {} — {}", mail.to(), mail.subject());
+        // Masked. Now that these are real passengers rather than a seeded demo row,
+        // a full address in the logs is somebody's personal data sitting in a file
+        // that gets copied around.
+        log.info("MAIL to {} — {}", masked(mail.to()), mail.subject());
+    }
+
+    private static String masked(String address) {
+        int at = address == null ? -1 : address.indexOf('@');
+        return at <= 0 ? "(hidden)" : address.charAt(0) + "***" + address.substring(at);
     }
 
     /** Test hook: what would have been sent. */

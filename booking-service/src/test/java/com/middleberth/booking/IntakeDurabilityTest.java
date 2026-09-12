@@ -103,7 +103,8 @@ class IntakeDurabilityTest {
         headers.setContentType(MediaType.APPLICATION_JSON);
         headers.set("X-User-Id", String.valueOf(userId));
         String body = """
-                {"requestId":"%s","trainNumber":"12951","travelDate":"%s","coachClass":"3A"}"""
+                {"requestId":"%s","trainNumber":"12951","travelDate":"%s","coachClass":"3A",\
+                 "passenger":{"name":"Test Passenger","email":"passenger@example.invalid","phone":"9876543210"}}"""
                 .formatted(requestId, DATE);
         return http.postForEntity("/api/bookings", new HttpEntity<>(body, headers), String.class);
     }

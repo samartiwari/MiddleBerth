@@ -1,6 +1,7 @@
 package com.middleberth.booking.service;
 
 import com.middleberth.booking.domain.Booking;
+import com.middleberth.booking.domain.PassengerSnapshot;
 import com.middleberth.booking.domain.Seat;
 import com.middleberth.booking.domain.SeatStatus;
 import com.middleberth.booking.dto.BookingCommand;
@@ -57,7 +58,7 @@ class BookingTransaction {
             seat.setStatus(SeatStatus.HELD);       // locked until this commits
             bookingRepo.saveAndFlush(Booking.held(
                     cmd.requestId(), cmd.userId(), trainId,
-                    cmd.travelDate(), cmd.coachClass(), seat.getId(), payBy));
+                    cmd.travelDate(), cmd.coachClass(), snapshotOf(cmd), seat.getId(), payBy));
             return BookingResult.held(seat.label(), payBy);
         }
 
@@ -66,12 +67,22 @@ class BookingTransaction {
         if (number.isPresent()) {
             bookingRepo.saveAndFlush(Booking.waitlistHeld(
                     cmd.requestId(), cmd.userId(), trainId,
-                    cmd.travelDate(), cmd.coachClass(), number.get(), payBy));
+                    cmd.travelDate(), cmd.coachClass(), snapshotOf(cmd), number.get(), payBy));
             return BookingResult.waitlistHeld(number.get(), payBy);
         }
 
         bookingRepo.saveAndFlush(Booking.regretted(
-                cmd.requestId(), cmd.userId(), trainId, cmd.travelDate(), cmd.coachClass()));
+                cmd.requestId(), cmd.userId(), trainId, cmd.travelDate(), cmd.coachClass(),
+                snapshotOf(cmd)));
         return BookingResult.regretted();
+    }
+
+    /**
+     * Copied from the request, not read from the master list. The ticket records
+     * who it was issued to, and editing that list later must not change it.
+     */
+    private static PassengerSnapshot snapshotOf(BookingCommand cmd) {
+        var p = cmd.passenger();
+        return p == null ? null : new PassengerSnapshot(p.name(), p.email(), p.phone());
     }
 }

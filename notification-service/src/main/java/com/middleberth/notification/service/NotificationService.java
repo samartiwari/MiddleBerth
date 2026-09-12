@@ -2,7 +2,6 @@ package com.middleberth.notification.service;
 
 import com.middleberth.notification.domain.SentMail;
 import com.middleberth.notification.dto.NotificationEvent;
-import com.middleberth.notification.repository.PassengerRepository;
 import com.middleberth.notification.repository.SentMailRepository;
 import com.middleberth.notification.send.MailWriter;
 import com.middleberth.notification.send.Notifier;
@@ -15,9 +14,12 @@ import org.springframework.stereotype.Service;
  * One message in, one mail out — at most.
  *
  *   1. have we sent this already?     a short query
- *   2. who is it for?                 a short query
- *   3. send it                        the mail server, NO transaction open
- *   4. write down that we sent it     a short save
+ *   2. send it                        the mail server, NO transaction open
+ *   3. write down that we sent it     a short save
+ *
+ * Who it goes to arrives WITH the event. This service used to keep its own table
+ * of addresses, which was a guess with nothing keeping it in step with the
+ * bookings it described.
  *
  * Sending comes before writing it down. If the pod dies in between, the message
  * is delivered again later and the passenger gets the same mail twice. Annoying.
@@ -33,7 +35,6 @@ import org.springframework.stereotype.Service;
 public class NotificationService {
 
     private final SentMailRepository sentMailRepo;
-    private final PassengerRepository passengerRepo;
     private final MailWriter writer;
     private final Notifier notifier;
 
@@ -43,13 +44,13 @@ public class NotificationService {
             return Sent.ALREADY_SENT;
         }
 
-        var passenger = passengerRepo.findById(event.userId());
-        if (passenger.isEmpty()) {
-            log.warn("No address for user {} — nothing sent for {}", event.userId(), event.requestId());
+        if (event.passengerEmail() == null || event.passengerEmail().isBlank()) {
+            // Only possible for a booking made before passengers were asked for.
+            log.warn("No address on the event for {} — nothing sent", event.requestId());
             return Sent.NO_ADDRESS;
         }
 
-        notifier.send(writer.write(event, passenger.get().getEmail()));
+        notifier.send(writer.write(event, event.passengerEmail()));
 
         try {
             sentMailRepo.saveAndFlush(new SentMail(event.userId(), event.requestId(), type));

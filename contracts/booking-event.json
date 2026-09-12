@@ -6,5 +6,7 @@
   "travelDate": "2026-08-25",
   "coachClass": "3A",
   "berth": "B2-31",
-  "reason": null
+  "reason": null,
+  "passengerName": "Samar Tiwari",
+  "passengerEmail": "samar@example.invalid"
 }

@@ -62,7 +62,8 @@ class BookingApiTest {
         headers.setContentType(MediaType.APPLICATION_JSON);
         String json = """
                 {"requestId":"%s","trainNumber":"%s",
-                 "travelDate":"2026-08-25","coachClass":"3A"}
+                 "travelDate":"2026-08-25","coachClass":"3A",
+                 "passenger":{"name":"Test Passenger","email":"passenger@example.invalid","phone":"9876543210"}}
                 """.formatted(requestId, trainNumber);
         return http.postForEntity("/api/bookings", new HttpEntity<>(json, headers), String.class);
     }
@@ -134,7 +135,8 @@ class BookingApiTest {
         headers.setContentType(MediaType.APPLICATION_JSON);
         ResponseEntity<String> res = http.postForEntity("/api/bookings", new HttpEntity<>("""
                 {"requestId":"NOID","trainNumber":"12951",
-                 "travelDate":"2026-08-25","coachClass":"3A"}
+                 "travelDate":"2026-08-25","coachClass":"3A",
+                 "passenger":{"name":"Test Passenger","email":"passenger@example.invalid","phone":"9876543210"}}
                 """, headers), String.class);
 
         assertThat(res.getStatusCode()).isEqualTo(HttpStatus.UNAUTHORIZED);

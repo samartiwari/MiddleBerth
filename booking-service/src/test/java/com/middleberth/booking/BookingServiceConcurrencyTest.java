@@ -56,7 +56,7 @@ class BookingServiceConcurrencyTest {
     @Test
     void twenty_four_berths_then_twenty_four_waitlisted_then_the_rest_regretted() throws Exception {
         List<BookingResult> results = runConcurrently(PEOPLE, i -> new BookingCommand(
-                "REQ-" + i, 1000L + i, TRAIN, DATE, CLASS));
+                "REQ-" + i, 1000L + i, TRAIN, DATE, CLASS, TestPassenger.SOMEONE));
 
         List<BookingResult> held = withStatus(results, BookingStatus.HELD);
         List<BookingResult> waitlist = withStatus(results, BookingStatus.WAITLIST_HELD);
@@ -100,7 +100,7 @@ class BookingServiceConcurrencyTest {
     @Test
     void the_same_request_id_only_ever_books_once() throws Exception {
         List<BookingResult> results = runConcurrently(50, i ->
-                new BookingCommand("SAME-ID", 5512L, TRAIN, DATE, CLASS));
+                new BookingCommand("SAME-ID", 5512L, TRAIN, DATE, CLASS, TestPassenger.SOMEONE));
 
         assertThat(bookingRepo.count()).as("rows written").isEqualTo(1);
 
@@ -116,14 +116,14 @@ class BookingServiceConcurrencyTest {
     //differt users with same request id should be give 1 seat each(total 2)
     @Test
     void two_users_with_the_same_request_id_each_get_their_own_booking() {
-        BookingResult a = bookingService.book(new BookingCommand("A7X2", 5512L, TRAIN, DATE, CLASS));
-        BookingResult b = bookingService.book(new BookingCommand("A7X2", 7731L, TRAIN, DATE, CLASS));
+        BookingResult a = bookingService.book(new BookingCommand("A7X2", 5512L, TRAIN, DATE, CLASS, TestPassenger.SOMEONE));
+        BookingResult b = bookingService.book(new BookingCommand("A7X2", 7731L, TRAIN, DATE, CLASS, TestPassenger.SOMEONE));
 
         assertThat(bookingRepo.count()).as("both booked").isEqualTo(2);
         assertThat(a.seat()).as("different berths").isNotEqualTo(b.seat());
 
         // and a retry by either of them is still idempotent
-        BookingResult aAgain = bookingService.book(new BookingCommand("A7X2", 5512L, TRAIN, DATE, CLASS));
+        BookingResult aAgain = bookingService.book(new BookingCommand("A7X2", 5512L, TRAIN, DATE, CLASS, TestPassenger.SOMEONE));
         assertThat(bookingRepo.count()).as("retry booked nothing new").isEqualTo(2);
         assertThat(aAgain.seat()).isEqualTo(a.seat());
     }

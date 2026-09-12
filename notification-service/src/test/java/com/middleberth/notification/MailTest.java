@@ -1,7 +1,5 @@
 package com.middleberth.notification;
 
-import com.middleberth.notification.domain.Passenger;
-import com.middleberth.notification.repository.PassengerRepository;
 import com.middleberth.notification.repository.SentMailRepository;
 import com.middleberth.notification.send.LoggingNotifier;
 import com.middleberth.notification.send.Mail;
@@ -37,7 +35,6 @@ import static org.assertj.core.api.Assertions.assertThat;
 @SpringBootTest
 class MailTest {
 
-    @Autowired PassengerRepository passengerRepo;
     @Autowired SentMailRepository sentMailRepo;
     @Autowired LoggingNotifier notifier;
     @Autowired KafkaConnectionDetails kafka;
@@ -45,8 +42,6 @@ class MailTest {
     @BeforeEach
     void seed() {
         sentMailRepo.deleteAllInBatch();
-        passengerRepo.deleteAllInBatch();
-        passengerRepo.save(new Passenger(5512L, "samar@example.invalid"));
         notifier.reset();
     }
 
@@ -56,7 +51,9 @@ class MailTest {
         publish("5512|A7X2", Files.readString(Path.of("../contracts/booking-event.json")));
 
         Mail mail = awaitMails(1).get(0);
-        assertThat(mail.to()).isEqualTo("samar@example.invalid");
+        assertThat(mail.to()).as("the address on the event, not one we looked up")
+                .isEqualTo("samar@example.invalid");
+        assertThat(mail.body()).contains("Samar Tiwari");
         assertThat(mail.subject()).contains("Ticket confirmed").contains("12951");
         assertThat(mail.body()).contains("B2-31").contains("A7X2");
     }
@@ -88,16 +85,17 @@ class MailTest {
         assertThat(mails.get(1).body()).contains("on its way back");
     }
 
-    /** No address is not a crash, and must not block the messages behind it. */
+    /**
+     * An event with no address on it — only possible for a booking made before
+     * passengers were asked for. Not a crash, and it must not block what is behind it.
+     */
     @Test
-    void an_unknown_passenger_is_skipped_and_the_queue_carries_on() {
-        publish("999|NOBODY", ticket(999, "NOBODY"));         // nobody to write to
-
-        passengerRepo.save(new Passenger(999L, "found@example.invalid"));
+    void an_event_with_no_address_is_skipped_and_the_queue_carries_on() {
+        publish("999|NOBODY", withoutAddress(999, "NOBODY"));
         publish("999|NOBODY", cancelled(999, "NOBODY", "NOTHING_LEFT"));   // same key, so it is next
 
         assertThat(awaitMails(1)).singleElement().satisfies(mail ->
-                assertThat(mail.to()).isEqualTo("found@example.invalid"));
+                assertThat(mail.to()).isEqualTo("passenger999@example.invalid"));
         assertThat(sentMailRepo.count()).as("nothing written down for the one with no address").isEqualTo(1);
     }
 
@@ -106,15 +104,26 @@ class MailTest {
     private String ticket(long userId, String requestId) {
         return """
                 {"type":"TICKET_CONFIRMED","userId":%d,"requestId":"%s","trainNumber":"12951",\
-                "travelDate":"2026-08-25","coachClass":"3A","berth":"B2-31","reason":null}"""
-                .formatted(userId, requestId);
+                "travelDate":"2026-08-25","coachClass":"3A","berth":"B2-31","reason":null,\
+                "passengerName":"Passenger %d","passengerEmail":"passenger%d@example.invalid"}"""
+                .formatted(userId, requestId, userId, userId);
     }
 
     private String cancelled(long userId, String requestId, String reason) {
         return """
                 {"type":"BOOKING_CANCELLED","userId":%d,"requestId":"%s","trainNumber":"12951",\
-                "travelDate":"2026-08-25","coachClass":"3A","berth":null,"reason":"%s"}"""
-                .formatted(userId, requestId, reason);
+                "travelDate":"2026-08-25","coachClass":"3A","berth":null,"reason":"%s",\
+                "passengerName":"Passenger %d","passengerEmail":"passenger%d@example.invalid"}"""
+                .formatted(userId, requestId, reason, userId, userId);
+    }
+
+    /** A ticket event with nobody to send it to. */
+    private String withoutAddress(long userId, String requestId) {
+        return """
+                {"type":"TICKET_CONFIRMED","userId":%d,"requestId":"%s","trainNumber":"12951",\
+                "travelDate":"2026-08-25","coachClass":"3A","berth":"B2-31","reason":null,\
+                "passengerName":null,"passengerEmail":null}"""
+                .formatted(userId, requestId);
     }
 
     private void publish(String key, String body) {

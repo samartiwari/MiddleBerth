@@ -75,7 +75,8 @@ class BookingRequestDltTest {
         try (Consumer<String, String> parked = deadLetters()) {
             publish("12951|2026-08-25|3A", """
                     {"requestId":"DOOMED","userId":5512,"trainNumber":"12951",\
-                    "travelDate":"2026-08-25","coachClass":"3A"}""");
+                    "travelDate":"2026-08-25","coachClass":"3A",\
+                    "passenger":{"name":"Test Passenger","email":"passenger@example.invalid","phone":"9876543210"}}""");
 
             ConsumerRecord<String, String> dead = awaitOne(parked);
             assertThat(dead.value()).as("the request itself, kept for a human").contains("DOOMED");

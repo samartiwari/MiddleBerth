@@ -77,9 +77,9 @@ class SeatCountEventTest {
     void claiming_a_berth_publishes_the_remaining_count() {
         try (Consumer<String, String> consumer = consumerFromNow()) {
 
-            bookingService.book(new BookingCommand("A7X2", 5512L, "12951", DATE, "3A"));
-            bookingService.book(new BookingCommand("B9K4", 7731L, "12951", DATE, "3A"));
-            bookingService.book(new BookingCommand("C1M7", 9910L, "12951", DATE, "3A"));
+            bookingService.book(new BookingCommand("A7X2", 5512L, "12951", DATE, "3A", TestPassenger.SOMEONE));
+            bookingService.book(new BookingCommand("B9K4", 7731L, "12951", DATE, "3A", TestPassenger.SOMEONE));
+            bookingService.book(new BookingCommand("C1M7", 9910L, "12951", DATE, "3A", TestPassenger.SOMEONE));
 
             List<ConsumerRecord<String, String>> records = drain(consumer, 3, Duration.ofSeconds(20));
 
@@ -99,11 +99,11 @@ class SeatCountEventTest {
     void waitlisting_publishes_nothing() {
         // take all 24 berths first
         for (int i = 0; i < 24; i++) {
-            bookingService.book(new BookingCommand("TAKE-" + i, 1000L + i, "12951", DATE, "3A"));
+            bookingService.book(new BookingCommand("TAKE-" + i, 1000L + i, "12951", DATE, "3A", TestPassenger.SOMEONE));
         }
 
         try (Consumer<String, String> consumer = consumerFromNow()) {
-            bookingService.book(new BookingCommand("LATE", 9999L, "12951", DATE, "3A"));
+            bookingService.book(new BookingCommand("LATE", 9999L, "12951", DATE, "3A", TestPassenger.SOMEONE));
 
             List<ConsumerRecord<String, String>> records = drain(consumer, 1, Duration.ofSeconds(5));
             assertThat(records).as("a waitlisted booking touches no seat rows").isEmpty();
@@ -117,7 +117,7 @@ class SeatCountEventTest {
      */
     @Test
     void an_expired_berth_going_back_on_sale_publishes_the_higher_count() {
-        bookingService.book(new BookingCommand("GONE", 5512L, "12951", DATE, "3A"));   // 23 free
+        bookingService.book(new BookingCommand("GONE", 5512L, "12951", DATE, "3A", TestPassenger.SOMEONE));   // 23 free
 
         try (Consumer<String, String> consumer = consumerFromNow()) {
             expiryJob.releaseExpired(Instant.now().plus(Duration.ofMinutes(10)));
@@ -143,7 +143,7 @@ class SeatCountEventTest {
                 Path.of("../contracts/seat-count-event.json").toFile());
 
         try (Consumer<String, String> consumer = consumerFromNow()) {
-            bookingService.book(new BookingCommand("CONTRACT", 4242L, "12951", DATE, "3A"));
+            bookingService.book(new BookingCommand("CONTRACT", 4242L, "12951", DATE, "3A", TestPassenger.SOMEONE));
 
             List<ConsumerRecord<String, String>> records = drain(consumer, 1, Duration.ofSeconds(20));
             assertThat(records).as("an event was published").isNotEmpty();
@@ -197,7 +197,7 @@ class SeatCountEventTest {
      */
     @Test
     void a_late_payment_that_takes_a_berth_publishes_the_new_count() {
-        bookingService.book(new BookingCommand("LATE", 42L, "12951", DATE, "3A"));
+        bookingService.book(new BookingCommand("LATE", 42L, "12951", DATE, "3A", TestPassenger.SOMEONE));
         Instant inTime = bookingRepo.findByUserIdAndRequestId(42L, "LATE").orElseThrow()
                 .getPayBy().minusSeconds(2);
         expiryJob.releaseExpired(Instant.now().plus(Duration.ofMinutes(30)));   // 24 free again

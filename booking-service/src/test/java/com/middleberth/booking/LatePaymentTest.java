@@ -206,7 +206,7 @@ class LatePaymentTest {
     // ---------- helpers ----------
 
     private void book(String requestId, long userId) {
-        bookingService.book(new BookingCommand(requestId, userId, "12951", DATE, "3A"));
+        bookingService.book(new BookingCommand(requestId, userId, "12951", DATE, "3A", TestPassenger.SOMEONE));
     }
 
     private void payNow(String requestId, long userId) {

@@ -27,12 +27,26 @@ public class Outbox {
 
     public void ticketConfirmed(Booking booking, String berth) {
         write(booking, NotificationEvent.ticket(booking.getUserId(), booking.getRequestId(),
-                trainNumber(booking), booking.getTravelDate(), booking.getCoachClass(), berth));
+                trainNumber(booking), booking.getTravelDate(), booking.getCoachClass(), berth,
+                nameOf(booking), emailOf(booking)));
     }
 
     public void bookingCancelled(Booking booking, String reason) {
         write(booking, NotificationEvent.cancelled(booking.getUserId(), booking.getRequestId(),
-                trainNumber(booking), booking.getTravelDate(), booking.getCoachClass(), reason));
+                trainNumber(booking), booking.getTravelDate(), booking.getCoachClass(), reason,
+                nameOf(booking), emailOf(booking)));
+    }
+
+    private String nameOf(Booking booking) {
+        return booking.getPassenger() == null ? null : booking.getPassenger().getName();
+    }
+
+    /**
+     * Taken from the booking, so notification-service has nothing to look up and
+     * no table of its own to keep in step with this one.
+     */
+    private String emailOf(Booking booking) {
+        return booking.getPassenger() == null ? null : booking.getPassenger().getEmail();
     }
 
     /**

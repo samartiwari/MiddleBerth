@@ -1,5 +1,6 @@
 package com.middleberth.booking.dto;
 
+import jakarta.validation.Valid;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotNull;
 import jakarta.validation.constraints.Size;
@@ -32,10 +33,19 @@ public record BookingRequest(
 
         @NotBlank(message = "is required")
         @Size(max = 4, message = "must be at most 4 characters")
-        String coachClass) {
+        String coachClass,
+
+        /**
+         * Who the ticket is for. Typed once into the master list and picked from
+         * it, or typed here — either way it travels WITH the request, so the
+         * booking path never has to look anyone up.
+         */
+        @NotNull(message = "is required")
+        @Valid
+        PassengerDetails passenger) {
 
     /** userId is passed in separately, from the gateway's header. */
     public BookingCommand toCommand(Long userId) {
-        return new BookingCommand(requestId, userId, trainNumber, travelDate, coachClass);
+        return new BookingCommand(requestId, userId, trainNumber, travelDate, coachClass, passenger);
     }
 }

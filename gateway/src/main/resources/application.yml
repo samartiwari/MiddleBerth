@@ -78,6 +78,20 @@ spring:
                     redis-rate-limiter.requestedTokens: 1
                     key-resolver: "#{@userKeyResolver}"
 
+            # The passenger master list. Read and edited long before the rush, so
+            # the limit is loose — it is a list, not a race.
+            - id: passengers
+              uri: ${middleberth.booking-url}
+              predicates:
+                - Path=/api/passengers/**
+              filters:
+                - name: RequestRateLimiter
+                  args:
+                    redis-rate-limiter.replenishRate: 5
+                    redis-rate-limiter.burstCapacity: 15
+                    redis-rate-limiter.requestedTokens: 1
+                    key-resolver: "#{@userKeyResolver}"
+
             # Razorpay telling us a payment went through. No login — Razorpay has no
             # token. It is trusted because payment-service checks the signature, and
             # the gateway passes the body through byte for byte so that still works.

@@ -72,6 +72,19 @@ public class ApiExceptionHandler {
                 "Could not accept the request — nothing was booked, try again with the same requestId");
     }
 
+    /** Not on your list, or not yours at all — the same answer either way. */
+    @ExceptionHandler(PassengerNotFoundException.class)
+    @ResponseStatus(HttpStatus.NOT_FOUND)
+    public ApiError passengerNotFound(PassengerNotFoundException e) {
+        return new ApiError("PASSENGER_NOT_FOUND", e.getMessage());
+    }
+
+    @ExceptionHandler(PassengerExistsException.class)
+    @ResponseStatus(HttpStatus.CONFLICT)
+    public ApiError passengerExists(PassengerExistsException e) {
+        return new ApiError("PASSENGER_EXISTS", e.getMessage());
+    }
+
     /** Malformed JSON, or a date that isn't a date. */
     @ExceptionHandler(HttpMessageNotReadableException.class)
     @ResponseStatus(HttpStatus.BAD_REQUEST)

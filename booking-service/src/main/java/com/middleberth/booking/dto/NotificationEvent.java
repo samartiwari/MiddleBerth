@@ -16,17 +16,22 @@ public record NotificationEvent(NotificationType type,
                                 LocalDate travelDate,
                                 String coachClass,
                                 String berth,
-                                String reason) {
+                                String reason,
+                                /** Who the ticket is for, and where it goes. */
+                                String passengerName,
+                                String passengerEmail) {
 
     public static NotificationEvent ticket(Long userId, String requestId, String trainNumber,
-                                           LocalDate travelDate, String coachClass, String berth) {
+                                           LocalDate travelDate, String coachClass, String berth,
+                                           String passengerName, String passengerEmail) {
         return new NotificationEvent(NotificationType.TICKET_CONFIRMED, userId, requestId,
-                trainNumber, travelDate, coachClass, berth, null);
+                trainNumber, travelDate, coachClass, berth, null, passengerName, passengerEmail);
     }
 
     public static NotificationEvent cancelled(Long userId, String requestId, String trainNumber,
-                                              LocalDate travelDate, String coachClass, String reason) {
+                                              LocalDate travelDate, String coachClass, String reason,
+                                              String passengerName, String passengerEmail) {
         return new NotificationEvent(NotificationType.BOOKING_CANCELLED, userId, requestId,
-                trainNumber, travelDate, coachClass, null, reason);
+                trainNumber, travelDate, coachClass, null, reason, passengerName, passengerEmail);
     }
 }

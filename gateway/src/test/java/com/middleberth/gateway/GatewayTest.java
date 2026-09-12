@@ -85,6 +85,28 @@ class GatewayTest {
         assertThat(BOOKING.seen()).as("rejected at the door").isEmpty();
     }
 
+    /**
+     * The passenger master list holds names, emails and phone numbers — the only
+     * real personal data in the system. It must be behind a token like bookings,
+     * and it must carry the user id from that token, or one account could read
+     * another's passengers.
+     */
+    @Test
+    void the_passenger_list_needs_a_token_and_carries_the_user_id() {
+        web.get().uri("/api/passengers").exchange().expectStatus().isUnauthorized();
+        assertThat(BOOKING.seen()).as("rejected at the door").isEmpty();
+
+        web.get().uri("/api/passengers")
+           .headers(h -> h.setBearerAuth(tokenFor(5512)))
+           .exchange().expectStatus().isOk();
+
+        assertThat(BOOKING.seen()).singleElement()
+                .satisfies(seen -> {
+                    assertThat(seen.path()).isEqualTo("/api/passengers");
+                    assertThat(seen.userIdHeader()).isEqualTo("5512");
+                });
+    }
+
     @Test
     void a_made_up_token_is_401() {
         web.post().uri("/api/bookings")

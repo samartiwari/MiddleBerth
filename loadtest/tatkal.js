@@ -101,6 +101,13 @@ export default function () {
     const started = Date.now();
     const accepted = http.post(`${BASE}/api/bookings`, JSON.stringify({
         requestId, trainNumber: train, travelDate: DATE, coachClass,
+        // Every ticket is for somebody. Typed in by the client, so the booking
+        // path never looks a passenger up.
+        passenger: {
+            name: `Passenger ${__VU}`,
+            email: `passenger${__VU}@example.invalid`,
+            phone: '9876543210',
+        },
     }), { headers: auth, tags: { name: 'book' } });
 
     if (accepted.status === 429) { rateLimited.add(1); return; }
