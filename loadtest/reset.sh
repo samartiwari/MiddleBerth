@@ -4,6 +4,14 @@
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
-docker compose exec -T booking-db psql -U middleberth -d booking -q \
-    -c "TRUNCATE booking, seat, quota_counter, outbox, train CASCADE;"
-docker compose exec -T booking-db psql -U middleberth -d booking -q -f - < deploy/seed-load.sql
+MODE="${MODE:-compose}"
+export PATH="$HOME/.local/bin:$PATH"
+
+if [ "$MODE" = "k8s" ]; then
+    psql_booking() { kubectl -n middleberth exec -i deploy/booking-db -- psql -U middleberth -d booking -q "$@"; }
+else
+    psql_booking() { docker compose exec -T booking-db psql -U middleberth -d booking -q "$@"; }
+fi
+
+psql_booking -c "TRUNCATE booking, seat, quota_counter, outbox, train CASCADE;"
+psql_booking -f - < deploy/seed-load.sql

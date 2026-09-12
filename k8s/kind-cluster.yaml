@@ -1,0 +1,20 @@
+# A Kubernetes cluster made of Docker containers, on this laptop.
+#
+# Three nodes: one that runs the cluster itself, two that run the pods. Not
+# because the work needs three machines, but because scheduling pods across nodes
+# is the thing being demonstrated.
+#
+# extraPortMappings is the only way into the cluster from the laptop: node port
+# 30080 (where nginx sits) appears as localhost:8088, exactly the address the load
+# test already uses.
+kind: Cluster
+apiVersion: kind.x-k8s.io/v1alpha4
+name: middleberth
+nodes:
+  - role: control-plane
+    extraPortMappings:
+      - containerPort: 30080
+        hostPort: 8088
+        protocol: TCP
+  - role: worker
+  - role: worker

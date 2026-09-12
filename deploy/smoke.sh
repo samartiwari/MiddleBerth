@@ -65,7 +65,9 @@ done
 case "$STATUS" in *CONFIRMED*) ;; *) echo "never confirmed: $STATUS"; exit 1 ;; esac
 
 say "the mail (notification-service log)"
-if docker compose logs --tail 20 notification-service | grep "MAIL"; then
+if { docker compose logs --tail 20 notification-service 2>/dev/null || true
+     PATH="$HOME/.local/bin:$PATH" kubectl -n middleberth logs --tail 20 deploy/notification-service 2>/dev/null || true
+   } | grep "MAIL"; then
     printf '\nall the way through: booked, paid, confirmed, mailed.\n'
 else
     echo "confirmed, but no mail went out — is there a passenger row for $USER_ID?"

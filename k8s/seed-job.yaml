@@ -1,0 +1,46 @@
+# One train with berths, and somebody to mail.
+#
+# A Job, not a Deployment: it runs once, finishes, and stays finished. It waits
+# for the tables to exist rather than for a service to be "up", because the tables
+# are made by Flyway inside the services, after they connect.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: seed-sql
+  namespace: middleberth
+data:
+  SEED_BOOKING: "-- Enough berths for a load test: five trains, two classes each.\n--\n--   3A  24 berths   SL  72 berths      x 5 trains = 480 berths\n--\n-- The waitlist cap equals the berth count, so about 960 people can get an answer\n-- that is not \"sorry\". Anyone after that is REGRETTED, which is exactly what\n-- tatkal looks like at 10:00:01.\n--\n-- Safe to run again.\n\nINSERT INTO train (number, name) VALUES\n    ('12951', 'Mumbai Rajdhani'),\n    ('12009', 'Shatabdi Express'),\n    ('22691', 'Bengaluru Rajdhani'),\n    ('12259', 'Sealdah Duronto'),\n    ('12627', 'Karnataka Express')\nON CONFLICT (number) DO NOTHING;\n\nINSERT INTO seat (train_id, travel_date, coach_class, coach, seat_no, status)\nSELECT t.id, CURRENT_DATE + 1, '3A', 'B2', n::text, 'FREE'\nFROM train t, generate_series(1, 24) AS n\nON CONFLICT DO NOTHING;\n\nINSERT INTO seat (train_id, travel_date, coach_class, coach, seat_no, status)\nSELECT t.id, CURRENT_DATE + 1, 'SL', 'S4', n::text, 'FREE'\nFROM train t, generate_series(1, 72) AS n\nON CONFLICT DO NOTHING;\n\nSELECT coach_class, count(*) AS berths, count(DISTINCT train_id) AS trains\nFROM seat WHERE travel_date = CURRENT_DATE + 1\nGROUP BY coach_class;\n"
+  SEED_NOTIFICATION: "-- Somebody to write to.\n--\n-- In a real system a user service owns this and notification-service asks it.\n-- MiddleBerth has no user service on purpose (login is a demo token at the\n-- gateway), so the demo user gets a row here.\nINSERT INTO passenger (user_id, email) VALUES\n    (5512, 'demo@middleberth.invalid')\nON CONFLICT (user_id) DO NOTHING;\n\nSELECT user_id, email FROM passenger;\n"
+
+---
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: seed
+  namespace: middleberth
+spec:
+  backoffLimit: 6
+  template:
+    spec:
+      restartPolicy: OnFailure
+      containers:
+        - name: seed
+          image: postgres:16-alpine
+          env:
+            - name: PGPASSWORD
+              valueFrom: {secretKeyRef: {name: middleberth-secrets, key: POSTGRES_PASSWORD}}
+            - name: SEED_BOOKING
+              valueFrom: {configMapKeyRef: {name: seed-sql, key: SEED_BOOKING}}
+            - name: SEED_NOTIFICATION
+              valueFrom: {configMapKeyRef: {name: seed-sql, key: SEED_NOTIFICATION}}
+          command:
+            - sh
+            - -c
+            - |
+              echo "waiting for booking-service to create its tables"
+              until psql -h booking-db -U middleberth -d booking -c '\d seat' >/dev/null 2>&1; do sleep 3; done
+              printf '%s' "$SEED_BOOKING" | psql -h booking-db -U middleberth -d booking -v ON_ERROR_STOP=1 -f -
+              echo "waiting for notification-service to create its tables"
+              until psql -h notification-db -U middleberth -d notification -c '\d passenger' >/dev/null 2>&1; do sleep 3; done
+              printf '%s' "$SEED_NOTIFICATION" | psql -h notification-db -U middleberth -d notification -v ON_ERROR_STOP=1 -f -
+              echo "seeded"

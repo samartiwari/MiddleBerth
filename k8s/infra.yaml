@@ -1,0 +1,348 @@
+# Everything the services need before they can start: somewhere to keep data, a
+# queue, a cache, and the settings they all share.
+#
+# The databases use emptyDir — memory-and-disk that dies with the pod. This
+# cluster exists to be load tested and thrown away; a real one would use a
+# StatefulSet with a real volume so a restarted database still has its rows.
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: middleberth
+
+---
+# Settings that are not secret. Changing one of these is a restart, not a rebuild.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: middleberth-config
+  namespace: middleberth
+data:
+  KAFKA_BOOTSTRAP: kafka:9092
+  REDIS_HOST: redis
+  POSTGRES_USER: middleberth
+  MAIL_MODE: log
+  RAZORPAY_MODE: stub
+
+---
+# The things that must not be in a ConfigMap, a git repository, or an image.
+# up.sh creates this from the environment, with dev defaults if nothing is set.
+apiVersion: v1
+kind: Secret
+metadata:
+  name: middleberth-secrets
+  namespace: middleberth
+type: Opaque
+stringData:
+  POSTGRES_PASSWORD: middleberth
+  JWT_SECRET: dev-only-secret-change-me-it-must-be-32-bytes-or-more
+  RAZORPAY_WEBHOOK_SECRET: dev-only-webhook-secret-not-for-real-use
+
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: booking-db
+  namespace: middleberth
+spec:
+  replicas: 1
+  selector:
+    matchLabels: {app: booking-db}
+  template:
+    metadata:
+      labels: {app: booking-db}
+    spec:
+      # Kubernetes injects an environment variable for every Service in the
+      # namespace, in an old Docker format: a Service called "kafka" becomes
+      # KAFKA_PORT=tcp://10.96.24.13:9092 inside every pod. The Kafka image turns
+      # every KAFKA_* variable into a broker setting, so the broker was being
+      # handed "port=tcp://10.96.24.13:9092" and refused to start. Nothing here
+      # uses those variables — everything finds everything else by DNS name.
+      enableServiceLinks: false
+      containers:
+        - name: postgres
+          image: postgres:16-alpine
+          env:
+            - name: POSTGRES_DB
+              value: booking
+            - name: POSTGRES_USER
+              valueFrom: {configMapKeyRef: {name: middleberth-config, key: POSTGRES_USER}}
+            - name: POSTGRES_PASSWORD
+              valueFrom: {secretKeyRef: {name: middleberth-secrets, key: POSTGRES_PASSWORD}}
+            - name: PGDATA
+              value: /var/lib/postgresql/data/pgdata
+          ports: [{containerPort: 5432}]
+          volumeMounts:
+            - {name: data, mountPath: /var/lib/postgresql/data}
+          # Not ready until it can actually answer. Until then, no service sends
+          # it traffic and no pod that depends on it gets past its own probe.
+          readinessProbe:
+            exec: {command: [sh, -c, "pg_isready -U middleberth -d booking"]}
+            initialDelaySeconds: 5
+            periodSeconds: 5
+          resources:
+            requests: {cpu: 100m, memory: 128Mi}
+            limits: {cpu: "1", memory: 512Mi}
+      volumes:
+        - {name: data, emptyDir: {}}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: booking-db
+  namespace: middleberth
+spec:
+  selector: {app: booking-db}
+  ports: [{port: 5432, targetPort: 5432}]
+
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: search-db
+  namespace: middleberth
+spec:
+  replicas: 1
+  selector:
+    matchLabels: {app: search-db}
+  template:
+    metadata:
+      labels: {app: search-db}
+    spec:
+      enableServiceLinks: false   # see the note above
+      containers:
+        - name: postgres
+          image: postgres:16-alpine
+          env:
+            - name: POSTGRES_DB
+              value: search
+            - name: POSTGRES_USER
+              valueFrom: {configMapKeyRef: {name: middleberth-config, key: POSTGRES_USER}}
+            - name: POSTGRES_PASSWORD
+              valueFrom: {secretKeyRef: {name: middleberth-secrets, key: POSTGRES_PASSWORD}}
+            - name: PGDATA
+              value: /var/lib/postgresql/data/pgdata
+          ports: [{containerPort: 5432}]
+          volumeMounts:
+            - {name: data, mountPath: /var/lib/postgresql/data}
+          # Not ready until it can actually answer. Until then, no service sends
+          # it traffic and no pod that depends on it gets past its own probe.
+          readinessProbe:
+            exec: {command: [sh, -c, "pg_isready -U middleberth -d search"]}
+            initialDelaySeconds: 5
+            periodSeconds: 5
+          resources:
+            requests: {cpu: 100m, memory: 128Mi}
+            limits: {cpu: "1", memory: 512Mi}
+      volumes:
+        - {name: data, emptyDir: {}}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: search-db
+  namespace: middleberth
+spec:
+  selector: {app: search-db}
+  ports: [{port: 5432, targetPort: 5432}]
+
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: payment-db
+  namespace: middleberth
+spec:
+  replicas: 1
+  selector:
+    matchLabels: {app: payment-db}
+  template:
+    metadata:
+      labels: {app: payment-db}
+    spec:
+      enableServiceLinks: false   # see the note above
+      containers:
+        - name: postgres
+          image: postgres:16-alpine
+          env:
+            - name: POSTGRES_DB
+              value: payment
+            - name: POSTGRES_USER
+              valueFrom: {configMapKeyRef: {name: middleberth-config, key: POSTGRES_USER}}
+            - name: POSTGRES_PASSWORD
+              valueFrom: {secretKeyRef: {name: middleberth-secrets, key: POSTGRES_PASSWORD}}
+            - name: PGDATA
+              value: /var/lib/postgresql/data/pgdata
+          ports: [{containerPort: 5432}]
+          volumeMounts:
+            - {name: data, mountPath: /var/lib/postgresql/data}
+          # Not ready until it can actually answer. Until then, no service sends
+          # it traffic and no pod that depends on it gets past its own probe.
+          readinessProbe:
+            exec: {command: [sh, -c, "pg_isready -U middleberth -d payment"]}
+            initialDelaySeconds: 5
+            periodSeconds: 5
+          resources:
+            requests: {cpu: 100m, memory: 128Mi}
+            limits: {cpu: "1", memory: 512Mi}
+      volumes:
+        - {name: data, emptyDir: {}}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: payment-db
+  namespace: middleberth
+spec:
+  selector: {app: payment-db}
+  ports: [{port: 5432, targetPort: 5432}]
+
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: notification-db
+  namespace: middleberth
+spec:
+  replicas: 1
+  selector:
+    matchLabels: {app: notification-db}
+  template:
+    metadata:
+      labels: {app: notification-db}
+    spec:
+      enableServiceLinks: false   # see the note above
+      containers:
+        - name: postgres
+          image: postgres:16-alpine
+          env:
+            - name: POSTGRES_DB
+              value: notification
+            - name: POSTGRES_USER
+              valueFrom: {configMapKeyRef: {name: middleberth-config, key: POSTGRES_USER}}
+            - name: POSTGRES_PASSWORD
+              valueFrom: {secretKeyRef: {name: middleberth-secrets, key: POSTGRES_PASSWORD}}
+            - name: PGDATA
+              value: /var/lib/postgresql/data/pgdata
+          ports: [{containerPort: 5432}]
+          volumeMounts:
+            - {name: data, mountPath: /var/lib/postgresql/data}
+          # Not ready until it can actually answer. Until then, no service sends
+          # it traffic and no pod that depends on it gets past its own probe.
+          readinessProbe:
+            exec: {command: [sh, -c, "pg_isready -U middleberth -d notification"]}
+            initialDelaySeconds: 5
+            periodSeconds: 5
+          resources:
+            requests: {cpu: 100m, memory: 128Mi}
+            limits: {cpu: "1", memory: 512Mi}
+      volumes:
+        - {name: data, emptyDir: {}}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: notification-db
+  namespace: middleberth
+spec:
+  selector: {app: notification-db}
+  ports: [{port: 5432, targetPort: 5432}]
+
+---
+# One broker, being its own controller. A real cluster runs three and replicates
+# every partition; here one replica of everything and no durability beyond the
+# pod's life. The advertised address must be the name other pods can reach.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: kafka
+  namespace: middleberth
+spec:
+  replicas: 1
+  selector:
+    matchLabels: {app: kafka}
+  template:
+    metadata:
+      labels: {app: kafka}
+    spec:
+      enableServiceLinks: false   # see the note above
+      containers:
+        - name: kafka
+          image: apache/kafka:3.8.0
+          env:
+            - {name: KAFKA_NODE_ID, value: "1"}
+            - {name: KAFKA_PROCESS_ROLES, value: "broker,controller"}
+            - {name: KAFKA_LISTENERS, value: "PLAINTEXT://0.0.0.0:9092,CONTROLLER://0.0.0.0:9093"}
+            - {name: KAFKA_ADVERTISED_LISTENERS, value: "PLAINTEXT://kafka:9092"}
+            - {name: KAFKA_LISTENER_SECURITY_PROTOCOL_MAP, value: "CONTROLLER:PLAINTEXT,PLAINTEXT:PLAINTEXT"}
+            - {name: KAFKA_CONTROLLER_LISTENER_NAMES, value: "CONTROLLER"}
+            # localhost, NOT kafka:9093. The controller lives in this same pod, and
+            # the "kafka" name resolves to a Service that only forwards 9092 — so
+            # reaching the controller through it timed out and the broker never
+            # finished starting. In compose every port on the container was
+            # reachable by name, which hid this.
+            - {name: KAFKA_CONTROLLER_QUORUM_VOTERS, value: "1@localhost:9093"}
+            - {name: KAFKA_INTER_BROKER_LISTENER_NAME, value: "PLAINTEXT"}
+            - {name: KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR, value: "1"}
+            - {name: KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR, value: "1"}
+            - {name: KAFKA_TRANSACTION_STATE_LOG_MIN_ISR, value: "1"}
+            - {name: KAFKA_GROUP_INITIAL_REBALANCE_DELAY_MS, value: "0"}
+            - {name: CLUSTER_ID, value: "middleberth-single-node"}
+          ports: [{containerPort: 9092}]
+          # A socket check, not kafka-topics.sh. That script starts a JVM of its
+          # own every time it runs, which took longer than any sane probe timeout
+          # on a busy laptop — the broker was up and being marked unhealthy for
+          # being slow to answer a question about itself. Kafka only accepts
+          # connections on 9092 once it has finished starting, so the socket being
+          # open is the honest signal here.
+          readinessProbe:
+            tcpSocket: {port: 9092}
+            initialDelaySeconds: 15
+            periodSeconds: 10
+          resources:
+            requests: {cpu: 200m, memory: 512Mi}
+            limits: {cpu: "2", memory: 1500Mi}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: kafka
+  namespace: middleberth
+spec:
+  selector: {app: kafka}
+  ports: [{port: 9092, targetPort: 9092}]
+
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: redis
+  namespace: middleberth
+spec:
+  replicas: 1
+  selector:
+    matchLabels: {app: redis}
+  template:
+    metadata:
+      labels: {app: redis}
+    spec:
+      enableServiceLinks: false   # see the note above
+      containers:
+        - name: redis
+          image: redis:7-alpine
+          ports: [{containerPort: 6379}]
+          readinessProbe:
+            exec: {command: [redis-cli, ping]}
+            initialDelaySeconds: 3
+            periodSeconds: 5
+          resources:
+            requests: {cpu: 50m, memory: 64Mi}
+            limits: {cpu: 500m, memory: 256Mi}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: redis
+  namespace: middleberth
+spec:
+  selector: {app: redis}
+  ports: [{port: 6379, targetPort: 6379}]

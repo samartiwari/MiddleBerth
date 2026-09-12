@@ -15,17 +15,36 @@ cd "$(dirname "$0")/.."
 
 USERS="${1:-1000}"
 DATE=$(date -u -d "+1 day" +%Y-%m-%d)
-NETWORK="${NETWORK:-middleberth_default}"
+
+# Where to run against: compose (default) or the kind cluster.
+#
+#   MODE=k8s loadtest/run.sh 2000
+#
+# The two differ in only two ways: how to reach the front door, and how to reach
+# the database for the correctness check.
+MODE="${MODE:-compose}"
+export PATH="$HOME/.local/bin:$PATH"
+
+if [ "$MODE" = "k8s" ]; then
+    # kind maps the nginx node port to localhost:8088, so k6 needs the host's own
+    # network to see it.
+    K6_NET=host
+    BASE=http://localhost:8088
+    psql_booking() { kubectl -n middleberth exec -i deploy/booking-db -- psql -U middleberth -d booking -q "$@"; }
+else
+    K6_NET=middleberth_default
+    BASE=http://nginx:80
+    psql_booking() { docker compose exec -T booking-db psql -U middleberth -d booking -q "$@"; }
+fi
 
 echo "== berths available before the run"
-docker compose exec -T booking-db psql -U middleberth -d booking -q \
-    -c "SELECT status, count(*) FROM seat WHERE travel_date = CURRENT_DATE + 1 GROUP BY status;"
+psql_booking -c "SELECT status, count(*) FROM seat WHERE travel_date = CURRENT_DATE + 1 GROUP BY status;"
 
 echo "== $USERS users, all at once, travel date $DATE"
 K6_EXIT=0
-docker run --rm -i --network "$NETWORK" \
+docker run --rm -i --network "$K6_NET" \
     -v "$PWD/loadtest:/loadtest:ro" \
-    -e BASE_URL=http://nginx:80 \
+    -e BASE_URL="$BASE" \
     -e TRAVEL_DATE="$DATE" \
     -e VUS="$USERS" \
     -e PAY_PERCENT="${PAY_PERCENT:-50}" \
@@ -36,7 +55,7 @@ docker run --rm -i --network "$NETWORK" \
 
 echo
 echo "== now the part that matters"
-docker compose exec -T booking-db psql -U middleberth -d booking -q -f - < loadtest/verify.sql
+psql_booking -f - < loadtest/verify.sql
 
 # k6 exits 99 when a threshold is crossed. Report it, but only after the database
 # has been checked — a slow system is a result, a double booking is a disaster.

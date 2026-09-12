@@ -1,0 +1,61 @@
+# The autoscaler. This is the answer phase 8 pointed at: one gateway and one
+# booking pod cannot absorb 2,000 people arriving in the same instant, so run
+# more of them when they are busy and fewer when they are not.
+#
+# It needs metrics-server installed (up.sh does it) — without something measuring
+# CPU, the autoscaler has nothing to act on and just says "unknown".
+#
+# scaleUp is deliberately impatient: tatkal is a spike, and a scale-up that waits
+# politely for five minutes is a scale-up that arrives after the rush is over.
+# scaleDown is patient, so it does not thrash.
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: booking-service
+  namespace: middleberth
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: booking-service
+  minReplicas: 2
+  maxReplicas: 8
+  metrics:
+    - type: Resource
+      resource:
+        name: cpu
+        target: {type: Utilization, averageUtilization: 60}
+  behavior:
+    scaleUp:
+      stabilizationWindowSeconds: 0
+      policies: [{type: Percent, value: 100, periodSeconds: 15}]
+    scaleDown:
+      stabilizationWindowSeconds: 120
+      policies: [{type: Pods, value: 1, periodSeconds: 60}]
+
+---
+# The gateway is where phase 8 measured the queue, so it scales too.
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: gateway
+  namespace: middleberth
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: gateway
+  minReplicas: 2
+  maxReplicas: 8
+  metrics:
+    - type: Resource
+      resource:
+        name: cpu
+        target: {type: Utilization, averageUtilization: 60}
+  behavior:
+    scaleUp:
+      stabilizationWindowSeconds: 0
+      policies: [{type: Percent, value: 100, periodSeconds: 15}]
+    scaleDown:
+      stabilizationWindowSeconds: 120
+      policies: [{type: Pods, value: 1, periodSeconds: 60}]

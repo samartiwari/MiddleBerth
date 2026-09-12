@@ -1,0 +1,434 @@
+# The five services.
+#
+# Each one is a Deployment (how many copies, and what they run) plus a Service (a
+# stable name and address in front of those copies). Nothing addresses a pod
+# directly — pods come and go, names do not.
+#
+# imagePullPolicy: IfNotPresent matters here. These images only exist on this
+# laptop, loaded into the cluster by up.sh; the default for a ":latest" tag is to
+# go looking on Docker Hub, which would fail forever.
+#
+# Three probes, and they are not the same job:
+#   startup    "still booting, do not judge me yet" — a JVM takes a few seconds
+#   readiness  "send me traffic" / "stop sending me traffic"
+#   liveness   "I am wedged, restart me"
+# Without a readiness probe, Kubernetes sends requests to a pod that is still
+# starting up and the user gets an error for no reason.
+#
+# The cpu request is what the autoscaler measures against, so every service has
+# one. No request, no meaningful "70% of CPU".
+
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: booking-service
+  namespace: middleberth
+spec:
+  replicas: 1
+  selector:
+    matchLabels: {app: booking-service}
+  template:
+    metadata:
+      labels: {app: booking-service}
+    spec:
+      # Kubernetes injects an environment variable for every Service in the
+      # namespace, in an old Docker format: a Service called "kafka" becomes
+      # KAFKA_PORT=tcp://10.96.24.13:9092 inside every pod. The Kafka image turns
+      # every KAFKA_* variable into a broker setting, so the broker was being
+      # handed "port=tcp://10.96.24.13:9092" and refused to start. Nothing here
+      # uses those variables — everything finds everything else by DNS name.
+      enableServiceLinks: false
+      containers:
+        - name: booking-service
+          image: middleberth-booking-service:latest
+          imagePullPolicy: IfNotPresent
+          ports: [{containerPort: 8080}]
+          env:
+            - {name: SPRING_DATASOURCE_URL, value: "jdbc:postgresql://booking-db:5432/booking"}
+            - name: SPRING_DATASOURCE_USERNAME
+              valueFrom: {configMapKeyRef: {name: middleberth-config, key: POSTGRES_USER}}
+            - name: SPRING_DATASOURCE_PASSWORD
+              valueFrom: {secretKeyRef: {name: middleberth-secrets, key: POSTGRES_PASSWORD}}
+            - name: SPRING_KAFKA_BOOTSTRAP_SERVERS
+              valueFrom: {configMapKeyRef: {name: middleberth-config, key: KAFKA_BOOTSTRAP}}
+            - {name: PAYMENT_URL, value: "http://payment-service:8083"}
+            # The JVM inside a container must be told what it may use, or it sizes
+            # the heap from the whole machine and gets killed for going over.
+            - {name: JAVA_TOOL_OPTIONS, value: "-XX:MaxRAMPercentage=70"}
+          startupProbe:
+            httpGet: {path: /actuator/health, port: 8080}
+            failureThreshold: 40
+            periodSeconds: 3
+          readinessProbe:
+            httpGet: {path: /actuator/health, port: 8080}
+            periodSeconds: 5
+            failureThreshold: 3
+          livenessProbe:
+            httpGet: {path: /actuator/health, port: 8080}
+            periodSeconds: 15
+            failureThreshold: 4
+          resources:
+            requests: {cpu: 250m, memory: 384Mi}
+            limits: {cpu: "2", memory: 900Mi}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: booking-service
+  namespace: middleberth
+spec:
+  selector: {app: booking-service}
+  ports: [{port: 8080, targetPort: 8080}]
+
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: search-service
+  namespace: middleberth
+spec:
+  replicas: 1
+  selector:
+    matchLabels: {app: search-service}
+  template:
+    metadata:
+      labels: {app: search-service}
+    spec:
+      enableServiceLinks: false   # see the note above
+      containers:
+        - name: search-service
+          image: middleberth-search-service:latest
+          imagePullPolicy: IfNotPresent
+          ports: [{containerPort: 8081}]
+          env:
+            - {name: SPRING_DATASOURCE_URL, value: "jdbc:postgresql://search-db:5432/search"}
+            - name: SPRING_DATASOURCE_USERNAME
+              valueFrom: {configMapKeyRef: {name: middleberth-config, key: POSTGRES_USER}}
+            - name: SPRING_DATASOURCE_PASSWORD
+              valueFrom: {secretKeyRef: {name: middleberth-secrets, key: POSTGRES_PASSWORD}}
+            - name: SPRING_KAFKA_BOOTSTRAP_SERVERS
+              valueFrom: {configMapKeyRef: {name: middleberth-config, key: KAFKA_BOOTSTRAP}}
+            - name: SPRING_DATA_REDIS_HOST
+              valueFrom: {configMapKeyRef: {name: middleberth-config, key: REDIS_HOST}}
+            # The JVM inside a container must be told what it may use, or it sizes
+            # the heap from the whole machine and gets killed for going over.
+            - {name: JAVA_TOOL_OPTIONS, value: "-XX:MaxRAMPercentage=70"}
+          startupProbe:
+            httpGet: {path: /actuator/health, port: 8081}
+            failureThreshold: 40
+            periodSeconds: 3
+          readinessProbe:
+            httpGet: {path: /actuator/health, port: 8081}
+            periodSeconds: 5
+            failureThreshold: 3
+          livenessProbe:
+            httpGet: {path: /actuator/health, port: 8081}
+            periodSeconds: 15
+            failureThreshold: 4
+          resources:
+            requests: {cpu: 250m, memory: 384Mi}
+            limits: {cpu: "2", memory: 900Mi}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: search-service
+  namespace: middleberth
+spec:
+  selector: {app: search-service}
+  ports: [{port: 8081, targetPort: 8081}]
+
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: payment-service
+  namespace: middleberth
+spec:
+  replicas: 1
+  selector:
+    matchLabels: {app: payment-service}
+  template:
+    metadata:
+      labels: {app: payment-service}
+    spec:
+      enableServiceLinks: false   # see the note above
+      containers:
+        - name: payment-service
+          image: middleberth-payment-service:latest
+          imagePullPolicy: IfNotPresent
+          ports: [{containerPort: 8083}]
+          env:
+            - {name: SPRING_DATASOURCE_URL, value: "jdbc:postgresql://payment-db:5432/payment"}
+            - name: SPRING_DATASOURCE_USERNAME
+              valueFrom: {configMapKeyRef: {name: middleberth-config, key: POSTGRES_USER}}
+            - name: SPRING_DATASOURCE_PASSWORD
+              valueFrom: {secretKeyRef: {name: middleberth-secrets, key: POSTGRES_PASSWORD}}
+            - name: SPRING_KAFKA_BOOTSTRAP_SERVERS
+              valueFrom: {configMapKeyRef: {name: middleberth-config, key: KAFKA_BOOTSTRAP}}
+            - name: MIDDLEBERTH_RAZORPAY_MODE
+              valueFrom: {configMapKeyRef: {name: middleberth-config, key: RAZORPAY_MODE}}
+            - name: RAZORPAY_WEBHOOK_SECRET
+              valueFrom: {secretKeyRef: {name: middleberth-secrets, key: RAZORPAY_WEBHOOK_SECRET}}
+            # The JVM inside a container must be told what it may use, or it sizes
+            # the heap from the whole machine and gets killed for going over.
+            - {name: JAVA_TOOL_OPTIONS, value: "-XX:MaxRAMPercentage=70"}
+          startupProbe:
+            httpGet: {path: /actuator/health, port: 8083}
+            failureThreshold: 40
+            periodSeconds: 3
+          readinessProbe:
+            httpGet: {path: /actuator/health, port: 8083}
+            periodSeconds: 5
+            failureThreshold: 3
+          livenessProbe:
+            httpGet: {path: /actuator/health, port: 8083}
+            periodSeconds: 15
+            failureThreshold: 4
+          resources:
+            requests: {cpu: 250m, memory: 384Mi}
+            limits: {cpu: "2", memory: 900Mi}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: payment-service
+  namespace: middleberth
+spec:
+  selector: {app: payment-service}
+  ports: [{port: 8083, targetPort: 8083}]
+
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: notification-service
+  namespace: middleberth
+spec:
+  replicas: 1
+  selector:
+    matchLabels: {app: notification-service}
+  template:
+    metadata:
+      labels: {app: notification-service}
+    spec:
+      enableServiceLinks: false   # see the note above
+      containers:
+        - name: notification-service
+          image: middleberth-notification-service:latest
+          imagePullPolicy: IfNotPresent
+          ports: [{containerPort: 8084}]
+          env:
+            - {name: SPRING_DATASOURCE_URL, value: "jdbc:postgresql://notification-db:5432/notification"}
+            - name: SPRING_DATASOURCE_USERNAME
+              valueFrom: {configMapKeyRef: {name: middleberth-config, key: POSTGRES_USER}}
+            - name: SPRING_DATASOURCE_PASSWORD
+              valueFrom: {secretKeyRef: {name: middleberth-secrets, key: POSTGRES_PASSWORD}}
+            - name: SPRING_KAFKA_BOOTSTRAP_SERVERS
+              valueFrom: {configMapKeyRef: {name: middleberth-config, key: KAFKA_BOOTSTRAP}}
+            - name: MAIL_MODE
+              valueFrom: {configMapKeyRef: {name: middleberth-config, key: MAIL_MODE}}
+            # The JVM inside a container must be told what it may use, or it sizes
+            # the heap from the whole machine and gets killed for going over.
+            - {name: JAVA_TOOL_OPTIONS, value: "-XX:MaxRAMPercentage=70"}
+          startupProbe:
+            httpGet: {path: /actuator/health, port: 8084}
+            failureThreshold: 40
+            periodSeconds: 3
+          readinessProbe:
+            httpGet: {path: /actuator/health, port: 8084}
+            periodSeconds: 5
+            failureThreshold: 3
+          livenessProbe:
+            httpGet: {path: /actuator/health, port: 8084}
+            periodSeconds: 15
+            failureThreshold: 4
+          resources:
+            requests: {cpu: 250m, memory: 384Mi}
+            limits: {cpu: "2", memory: 900Mi}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: notification-service
+  namespace: middleberth
+spec:
+  selector: {app: notification-service}
+  ports: [{port: 8084, targetPort: 8084}]
+
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: gateway
+  namespace: middleberth
+spec:
+  replicas: 1
+  selector:
+    matchLabels: {app: gateway}
+  template:
+    metadata:
+      labels: {app: gateway}
+    spec:
+      enableServiceLinks: false   # see the note above
+      containers:
+        - name: gateway
+          image: middleberth-gateway:latest
+          imagePullPolicy: IfNotPresent
+          ports: [{containerPort: 8000}]
+          env:
+            - {name: BOOKING_URL, value: "http://booking-service:8080"}
+            - {name: SEARCH_URL, value: "http://search-service:8081"}
+            - {name: PAYMENT_URL, value: "http://payment-service:8083"}
+            - name: SPRING_DATA_REDIS_HOST
+              valueFrom: {configMapKeyRef: {name: middleberth-config, key: REDIS_HOST}}
+            - name: JWT_SECRET
+              valueFrom: {secretKeyRef: {name: middleberth-secrets, key: JWT_SECRET}}
+            # The JVM inside a container must be told what it may use, or it sizes
+            # the heap from the whole machine and gets killed for going over.
+            - {name: JAVA_TOOL_OPTIONS, value: "-XX:MaxRAMPercentage=70"}
+          startupProbe:
+            httpGet: {path: /actuator/health, port: 8000}
+            failureThreshold: 40
+            periodSeconds: 3
+          readinessProbe:
+            httpGet: {path: /actuator/health, port: 8000}
+            periodSeconds: 5
+            failureThreshold: 3
+          livenessProbe:
+            httpGet: {path: /actuator/health, port: 8000}
+            periodSeconds: 15
+            failureThreshold: 4
+          resources:
+            requests: {cpu: 250m, memory: 384Mi}
+            limits: {cpu: "2", memory: 900Mi}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: gateway
+  namespace: middleberth
+spec:
+  selector: {app: gateway}
+  ports: [{port: 8000, targetPort: 8000}]
+
+---
+# The front door. Same config file as docker compose uses, kept in a ConfigMap so
+# it can be changed without rebuilding an image.
+#
+# The startup DNS lookup that the comment in that file warns about is fine here:
+# "gateway" is a Service, and a Service has one address that never changes, no
+# matter how many pods the autoscaler puts behind it. Kubernetes does the
+# balancing, so nginx can keep its connections open.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: nginx-conf
+  namespace: middleberth
+data:
+  default.conf: |
+    # The only thing the outside world can reach.
+    #
+    # Connections to the gateway are REUSED. Without the keepalive block below, nginx
+    # opens a fresh TCP connection for every request and each one leaves a socket in
+    # TIME_WAIT for a couple of minutes. Under load the machine runs out of ephemeral
+    # ports and nginx starts answering 502:
+    #
+    #   connect() to 172.22.0.12:8000 failed (99: Address not available)
+    #
+    # Measured: 8,510 of 36,741 requests failed that way in a 2,000 user run. The
+    # booking path survived it; browsing did not.
+    #
+    # The cost of an upstream block is that nginx resolves the name once, at startup.
+    # That is the other trap: with several gateway containers behind one name, every
+    # request goes to whichever one nginx found first and the rest idle. It looks like
+    # load balancing. If this ever fronts more than one gateway, the fix is a
+    # `resolver 127.0.0.11` line and the address in a VARIABLE in proxy_pass, which
+    # makes nginx look it up per request — at the price of these reused connections.
+    #
+    # Here there is one gateway, and in Kubernetes a Service does the balancing, so
+    # reuse wins.
+
+    upstream gateway {
+        server gateway:8000;
+
+        keepalive 64;             # idle connections kept open, ready for the next request
+        keepalive_requests 1000;
+        keepalive_timeout 60s;
+    }
+
+    server {
+        listen 80;
+        server_name _;
+
+        # Not nginx's job to decide who may book — the gateway does that, and it needs
+        # to see the request exactly as it was sent. In particular the Razorpay webhook
+        # body must arrive byte for byte, or its signature will not match.
+        location / {
+            proxy_pass http://gateway;
+
+            # Both lines are required for the reuse above: HTTP/1.1, and clearing the
+            # Connection header nginx would otherwise send as "close".
+            proxy_http_version 1.1;
+            proxy_set_header Connection "";
+            proxy_set_header Host              $host;
+            proxy_set_header X-Real-IP         $remote_addr;
+            proxy_set_header X-Forwarded-For   $proxy_add_x_forwarded_for;
+            proxy_set_header X-Forwarded-Proto $scheme;
+
+            # Nobody from outside gets to claim they are a user. The gateway sets this
+            # header itself from the token, but it can only strip what reaches it.
+            proxy_set_header X-User-Id "";
+
+            proxy_connect_timeout 2s;
+            proxy_read_timeout    30s;
+        }
+    }
+
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: nginx
+  namespace: middleberth
+spec:
+  replicas: 1
+  selector:
+    matchLabels: {app: nginx}
+  template:
+    metadata:
+      labels: {app: nginx}
+    spec:
+      enableServiceLinks: false   # see the note above
+      containers:
+        - name: nginx
+          image: nginx:alpine
+          ports: [{containerPort: 80}]
+          volumeMounts:
+            - {name: conf, mountPath: /etc/nginx/conf.d}
+          readinessProbe:
+            httpGet: {path: /api/trains, port: 80}
+            periodSeconds: 5
+          resources:
+            requests: {cpu: 100m, memory: 32Mi}
+            limits: {cpu: "1", memory: 128Mi}
+      volumes:
+        - name: conf
+          configMap: {name: nginx-conf}
+---
+# NodePort, not ClusterIP: this is the one thing reachable from the laptop, and
+# kind maps node port 30080 to localhost:8088. Everything else in this namespace
+# can only be reached from inside the cluster.
+apiVersion: v1
+kind: Service
+metadata:
+  name: nginx
+  namespace: middleberth
+spec:
+  type: NodePort
+  selector: {app: nginx}
+  ports:
+    - port: 80
+      targetPort: 80
+      nodePort: 30080
