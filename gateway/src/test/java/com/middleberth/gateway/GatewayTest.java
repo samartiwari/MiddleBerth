@@ -1,6 +1,6 @@
 package com.middleberth.gateway;
 
-import com.middleberth.gateway.auth.TokenResponse;
+import com.middleberth.gateway.dto.TokenResponse;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;

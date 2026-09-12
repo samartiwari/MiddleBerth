@@ -1,5 +1,8 @@
-package com.middleberth.gateway.auth;
+package com.middleberth.gateway.controller;
 
+import com.middleberth.gateway.dto.TokenRequest;
+import com.middleberth.gateway.dto.TokenResponse;
+import com.middleberth.gateway.service.Tokens;
 import lombok.RequiredArgsConstructor;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.http.HttpStatus;

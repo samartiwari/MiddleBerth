@@ -1,5 +1,6 @@
-package com.middleberth.gateway.auth;
+package com.middleberth.gateway.repository;
 
+import com.middleberth.gateway.domain.AppUser;
 import org.springframework.data.repository.reactive.ReactiveCrudRepository;
 import reactor.core.publisher.Mono;
 

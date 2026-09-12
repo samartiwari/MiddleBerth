@@ -1,4 +1,4 @@
-package com.middleberth.gateway.auth;
+package com.middleberth.gateway.config;
 
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;

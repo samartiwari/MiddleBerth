@@ -1,5 +1,8 @@
-package com.middleberth.gateway.auth;
+package com.middleberth.gateway.service;
 
+import com.middleberth.gateway.domain.AppUser;
+import com.middleberth.gateway.dto.Credentials;
+import com.middleberth.gateway.repository.UserRepository;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.dao.DataIntegrityViolationException;

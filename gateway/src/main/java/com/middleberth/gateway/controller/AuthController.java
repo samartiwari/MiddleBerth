@@ -1,5 +1,9 @@
-package com.middleberth.gateway.auth;
+package com.middleberth.gateway.controller;
 
+import com.middleberth.gateway.service.AuthService;
+import com.middleberth.gateway.dto.Credentials;
+import com.middleberth.gateway.dto.TokenResponse;
+import com.middleberth.gateway.service.Tokens;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.HttpStatus;

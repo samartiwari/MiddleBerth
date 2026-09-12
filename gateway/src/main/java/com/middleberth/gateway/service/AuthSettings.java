@@ -1,4 +1,4 @@
-package com.middleberth.gateway.auth;
+package com.middleberth.gateway.service;
 
 import org.springframework.boot.context.properties.ConfigurationProperties;
 

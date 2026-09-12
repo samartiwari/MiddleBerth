@@ -1,4 +1,4 @@
-package com.middleberth.gateway.auth;
+package com.middleberth.gateway.service;
 
 import lombok.RequiredArgsConstructor;
 import org.springframework.data.redis.core.ReactiveStringRedisTemplate;

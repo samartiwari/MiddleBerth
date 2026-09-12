@@ -1,5 +1,6 @@
-package com.middleberth.gateway.auth;
+package com.middleberth.gateway.service;
 
+import com.middleberth.gateway.dto.TokenResponse;
 import lombok.RequiredArgsConstructor;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.security.oauth2.jose.jws.MacAlgorithm;

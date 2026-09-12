@@ -1,4 +1,4 @@
-package com.middleberth.gateway.auth;
+package com.middleberth.gateway.domain;
 
 import lombok.Getter;
 import org.springframework.data.annotation.Id;

@@ -1,7 +1,7 @@
 package com.middleberth.gateway;
 
-import com.middleberth.gateway.auth.Credentials;
-import com.middleberth.gateway.auth.TokenResponse;
+import com.middleberth.gateway.dto.Credentials;
+import com.middleberth.gateway.dto.TokenResponse;
 import org.junit.jupiter.api.Test;
 import org.springframework.boot.test.autoconfigure.web.reactive.AutoConfigureWebTestClient;
 import org.springframework.boot.test.context.SpringBootTest;

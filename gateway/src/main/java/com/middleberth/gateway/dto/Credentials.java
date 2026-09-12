@@ -1,4 +1,4 @@
-package com.middleberth.gateway.auth;
+package com.middleberth.gateway.dto;
 
 import jakarta.validation.constraints.Email;
 import jakarta.validation.constraints.NotBlank;
