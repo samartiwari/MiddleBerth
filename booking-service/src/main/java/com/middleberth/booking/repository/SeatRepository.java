@@ -7,6 +7,7 @@ import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 
 import java.time.LocalDate;
+import java.util.List;
 import java.util.Optional;
 
 public interface SeatRepository extends JpaRepository<Seat, Long> {
@@ -49,6 +50,25 @@ public interface SeatRepository extends JpaRepository<Seat, Long> {
      * Hits idx_seat_lookup (train_id, travel_date, coach_class, status) exactly,
      * so it counts index entries and never touches the table.
      */
+    /**
+     * Every count in one query, for the snapshot that search-service starts from.
+     *
+     * Grouped in the database rather than by asking per train: one statement
+     * instead of one per train and class. Only dates that can still be travelled,
+     * because nobody is browsing last week.
+     */
+    @Query(value = """
+            SELECT t.number       AS trainNumber,
+                   s.travel_date  AS travelDate,
+                   s.coach_class  AS coachClass,
+                   count(*) FILTER (WHERE s.status = 'FREE') AS freeSeats
+              FROM seat s
+              JOIN train t ON t.id = s.train_id
+             WHERE s.travel_date >= CURRENT_DATE
+             GROUP BY t.number, s.travel_date, s.coach_class
+            """, nativeQuery = true)
+    List<SeatCountRow> freeCountsFromToday();
+
     int countByTrainIdAndTravelDateAndCoachClassAndStatus(Long trainId,
                                                           LocalDate travelDate,
                                                           String coachClass,

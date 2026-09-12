@@ -3,12 +3,9 @@ package com.middleberth.booking.service;
 import com.middleberth.booking.domain.Booking;
 import com.middleberth.booking.domain.BookingStatus;
 import com.middleberth.booking.domain.Seat;
-import com.middleberth.booking.domain.SeatStatus;
 import com.middleberth.booking.dto.BookingCommand;
 import com.middleberth.booking.exception.TrainNotFoundException;
 import com.middleberth.booking.dto.BookingResult;
-import com.middleberth.booking.dto.SeatCountEvent;
-import com.middleberth.booking.kafka.SeatCountPublisher;
 import com.middleberth.booking.repository.BookingRepository;
 import com.middleberth.booking.repository.SeatRepository;
 import com.middleberth.booking.repository.TrainRepository;
@@ -26,7 +23,7 @@ public class BookingService {
     private final SeatRepository seatRepo;
     private final BookingRepository bookingRepo;
     private final BookingTransaction bookingTransaction;
-    private final SeatCountPublisher seatCountPublisher;
+    private final SeatCountAnnouncer announcer;
 
     public BookingResult book(BookingCommand cmd) {
         //Find train id from the request
@@ -66,10 +63,7 @@ public class BookingService {
         if (result.status() != BookingStatus.HELD) {
             return;
         }
-        int free = seatRepo.countByTrainIdAndTravelDateAndCoachClassAndStatus(
-                trainId, cmd.travelDate(), cmd.coachClass(), SeatStatus.FREE);
-        seatCountPublisher.publish(new SeatCountEvent(
-                cmd.trainNumber(), cmd.travelDate(), cmd.coachClass(), free));
+        announcer.announce(cmd.trainNumber(), trainId, cmd.travelDate(), cmd.coachClass());
     }
 
     /**

@@ -2,7 +2,9 @@ package com.middleberth.booking.kafka;
 
 import com.middleberth.booking.dto.PaymentEvent;
 import com.middleberth.booking.dto.RefundRequest;
+import com.middleberth.booking.repository.BookingRepository;
 import com.middleberth.booking.service.BookingPayments;
+import com.middleberth.booking.service.SeatCountAnnouncer;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.kafka.annotation.KafkaListener;
@@ -22,6 +24,8 @@ import org.springframework.stereotype.Component;
 public class PaymentEventConsumer {
 
     private final BookingPayments payments;
+    private final BookingRepository bookingRepo;
+    private final SeatCountAnnouncer announcer;
     private final RefundRequestPublisher refunds;
 
     @KafkaListener(topics = PaymentEventsConfig.PAYMENT_EVENTS,
@@ -47,10 +51,28 @@ public class PaymentEventConsumer {
         switch (result) {
             case CONFIRMED, WAITLISTED ->
                     log.info("Booking {}/{} paid -> {}", event.userId(), event.requestId(), result);
-            case HONOURED_LATE ->
-                    log.info("Booking {}/{} paid in time but reached us late — honoured", event.userId(), event.requestId());
+            case HONOURED_LATE -> {
+                log.info("Booking {}/{} paid in time but reached us late — honoured", event.userId(), event.requestId());
+                announceIfBerthTaken(event);
+            }
             default ->
                     log.debug("Duplicate paid event for {}/{}", event.userId(), event.requestId());
         }
+    }
+
+    /**
+     * A late payment that was honoured with a FREE berth has just taken one out of
+     * circulation, and nothing else would tell search-service. It used to claim the
+     * berth was still free until the next booking for that train corrected it.
+     *
+     * After apply() has returned, so the transaction is committed and the count is
+     * real. Honoured onto the waitlist instead touches no berth, so there is
+     * nothing to announce.
+     */
+    private void announceIfBerthTaken(PaymentEvent event) {
+        bookingRepo.findByUserIdAndRequestId(event.userId(), event.requestId())
+                .filter(booking -> booking.getSeatId() != null)
+                .ifPresent(booking -> announcer.announce(
+                        booking.getTrainId(), booking.getTravelDate(), booking.getCoachClass()));
     }
 }

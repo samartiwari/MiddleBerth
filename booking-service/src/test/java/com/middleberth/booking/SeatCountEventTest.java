@@ -10,11 +10,17 @@ import com.middleberth.booking.repository.SeatRepository;
 import com.middleberth.booking.repository.TrainRepository;
 import com.middleberth.booking.service.BookingService;
 import com.middleberth.booking.service.HoldExpiryJob;
+import com.middleberth.booking.service.SeatCountSnapshotJob;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.apache.kafka.clients.consumer.*;
+import org.apache.kafka.clients.producer.KafkaProducer;
+import org.apache.kafka.clients.producer.Producer;
+import org.apache.kafka.clients.producer.ProducerConfig;
+import org.apache.kafka.clients.producer.ProducerRecord;
 import org.apache.kafka.common.TopicPartition;
 import org.apache.kafka.common.serialization.StringDeserializer;
+import org.apache.kafka.common.serialization.StringSerializer;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -53,6 +59,7 @@ class SeatCountEventTest {
     @Autowired TransactionTemplate tx;
     @Autowired JdbcTemplate jdbc;
     @Autowired KafkaConnectionDetails kafka;
+    @Autowired SeatCountSnapshotJob snapshotJob;
 
     @BeforeEach
     void seed() {
@@ -151,6 +158,71 @@ class SeatCountEventTest {
                         .as("'%s' has the type search-service expects", field)
                         .isEqualTo(contract.get(field).getNodeType());
             });
+        }
+    }
+
+    /**
+     * The cold start: search-service answers from Redis and nothing else, so an
+     * empty Redis used to mean UNKNOWN until somebody happened to book that train.
+     * The snapshot fills it in, and repairs any count that went missing.
+     *
+     * Seeded on a FUTURE date on purpose: the snapshot ignores dates that have
+     * already been travelled, and this class's other tests use a date in the past.
+     */
+    @Test
+    void the_snapshot_publishes_every_count_from_scratch() {
+        LocalDate soon = LocalDate.now().plusDays(1);
+        tx.executeWithoutResult(t -> {
+            Long trainId = trainRepo.findByNumber("12951").orElseThrow().getId();
+            for (int n = 1; n <= 2; n++) {
+                seatRepo.save(new Seat(trainId, soon, "SL", "S4", String.valueOf(n), SeatStatus.FREE));
+            }
+        });
+
+        try (Consumer<String, String> consumer = consumerFromNow()) {
+            int published = snapshotJob.publishSnapshot();
+
+            assertThat(published).as("one line per train, date and class still to travel").isEqualTo(1);
+            List<ConsumerRecord<String, String>> records = drain(consumer, 1, Duration.ofSeconds(20));
+            assertThat(records).hasSize(1);
+            assertThat(freeSeatsIn(records.get(0).value())).isEqualTo(2);
+            assertThat(records.get(0).key()).isEqualTo("12951|" + soon + "|SL");
+        }
+    }
+
+    /**
+     * A payment that arrived in time but reached us after the hold was released is
+     * given a free berth — which takes it out of circulation. Nothing used to say
+     * so, and search claimed it was still free until the next booking.
+     */
+    @Test
+    void a_late_payment_that_takes_a_berth_publishes_the_new_count() {
+        bookingService.book(new BookingCommand("LATE", 42L, "12951", DATE, "3A"));
+        Instant inTime = bookingRepo.findByUserIdAndRequestId(42L, "LATE").orElseThrow()
+                .getPayBy().minusSeconds(2);
+        expiryJob.releaseExpired(Instant.now().plus(Duration.ofMinutes(30)));   // 24 free again
+
+        try (Consumer<String, String> consumer = consumerFromNow()) {
+            publishPaid(42L, "LATE", inTime);
+
+            List<ConsumerRecord<String, String>> records = drain(consumer, 1, Duration.ofSeconds(30));
+            assertThat(records).as("the honoured berth was announced").hasSize(1);
+            assertThat(freeSeatsIn(records.get(0).value())).isEqualTo(23);
+        }
+    }
+
+    /** Stands in for payment-service. */
+    private void publishPaid(long userId, String requestId, Instant paidAt) {
+        Map<String, Object> props = new HashMap<>();
+        props.put(ProducerConfig.BOOTSTRAP_SERVERS_CONFIG, kafka.getBootstrapServers());
+        props.put(ProducerConfig.KEY_SERIALIZER_CLASS_CONFIG, StringSerializer.class);
+        props.put(ProducerConfig.VALUE_SERIALIZER_CLASS_CONFIG, StringSerializer.class);
+        String body = ("{\"type\":\"PAID\",\"userId\":%d,\"requestId\":\"%s\","
+                + "\"orderId\":\"order_x\",\"paymentId\":\"pay_x\","
+                + "\"amountPaise\":240000,\"paidAt\":\"%s\"}").formatted(userId, requestId, paidAt);
+        try (Producer<String, String> producer = new KafkaProducer<>(props)) {
+            producer.send(new ProducerRecord<>("payment-events", userId + "|" + requestId, body));
+            producer.flush();
         }
     }
 

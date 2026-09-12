@@ -1,10 +1,5 @@
 package com.middleberth.booking.service;
 
-import com.middleberth.booking.domain.SeatStatus;
-import com.middleberth.booking.dto.SeatCountEvent;
-import com.middleberth.booking.kafka.SeatCountPublisher;
-import com.middleberth.booking.repository.SeatRepository;
-import com.middleberth.booking.repository.TrainRepository;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.scheduling.annotation.Scheduled;
@@ -26,9 +21,7 @@ public class HoldExpiryJob {
 
     private final HoldReleaser releaser;
     private final HoldSettings holds;
-    private final SeatRepository seatRepo;
-    private final TrainRepository trainRepo;
-    private final SeatCountPublisher seatCountPublisher;
+    private final SeatCountAnnouncer announcer;
 
     @Scheduled(fixedDelayString = "${middleberth.hold.expiry-interval}")
     public void run() {
@@ -57,9 +50,6 @@ public class HoldExpiryJob {
      * berth handed to a waitlister was taken before and is still taken.
      */
     private void announceNewCount(HoldReleaser.FreedBerths f) {
-        String trainNumber = trainRepo.findById(f.trainId()).orElseThrow().getNumber();
-        int free = seatRepo.countByTrainIdAndTravelDateAndCoachClassAndStatus(
-                f.trainId(), f.travelDate(), f.coachClass(), SeatStatus.FREE);
-        seatCountPublisher.publish(new SeatCountEvent(trainNumber, f.travelDate(), f.coachClass(), free));
+        announcer.announce(f.trainId(), f.travelDate(), f.coachClass());
     }
 }
