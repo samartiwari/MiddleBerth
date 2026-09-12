@@ -13,5 +13,5 @@ else
     psql_booking() { docker compose exec -T booking-db psql -U middleberth -d booking -q "$@"; }
 fi
 
-psql_booking -c "TRUNCATE booking, seat, quota_counter, outbox, train CASCADE;"
+psql_booking -c "TRUNCATE booking, seat, quota_counter, outbox, train, train_quota CASCADE;"
 psql_booking -f - < deploy/seed-load.sql

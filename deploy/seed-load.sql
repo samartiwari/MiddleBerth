@@ -1,4 +1,4 @@
--- Enough berths for a load test: five trains, two classes each.
+-- Five trains for the load test, and what each one has.
 --
 --   3A  24 berths   SL  72 berths      x 5 trains = 480 berths
 --
@@ -16,14 +16,19 @@ INSERT INTO train (number, name) VALUES
     ('12627', 'Karnataka Express')
 ON CONFLICT (number) DO NOTHING;
 
-INSERT INTO seat (train_id, travel_date, coach_class, coach, seat_no, status)
-SELECT t.id, CURRENT_DATE + 1, '3A', 'B2', n::text, 'FREE'
-FROM train t, generate_series(1, 24) AS n
+INSERT INTO train_quota (train_id, coach_class, coach, berths)
+SELECT t.id, '3A', 'B2', 24 FROM train t
 ON CONFLICT DO NOTHING;
 
+INSERT INTO train_quota (train_id, coach_class, coach, berths)
+SELECT t.id, 'SL', 'S4', 72 FROM train t
+ON CONFLICT DO NOTHING;
+
+-- Tomorrow, on sale now — the load test runs immediately, not at noon.
 INSERT INTO seat (train_id, travel_date, coach_class, coach, seat_no, status)
-SELECT t.id, CURRENT_DATE + 1, 'SL', 'S4', n::text, 'FREE'
-FROM train t, generate_series(1, 72) AS n
+SELECT q.train_id, CURRENT_DATE + 1, q.coach_class, q.coach, n::text, 'FREE'
+FROM train_quota q, generate_series(1, 100) AS n
+WHERE n <= q.berths
 ON CONFLICT DO NOTHING;
 
 SELECT coach_class, count(*) AS berths, count(DISTINCT train_id) AS trains
