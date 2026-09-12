@@ -37,4 +37,18 @@ public class KafkaTopicConfig {
     NewTopic seatCounts() {
         return new NewTopic(SEAT_COUNTS, 15, (short) 1);
     } //name,partition,replicas
+
+    //Topic name
+    public static final String BOOKING_EVENTS = "booking-events";
+
+    /**
+     * Things worth telling the passenger about, for notification-service. Keyed by
+     * booking, so a cancellation can never be delivered before the confirmation it
+     * cancels. Declared in notification-service as well — whoever touches a topic
+     * first decides its partitions.
+     */
+    @Bean
+    NewTopic bookingEvents() {
+        return new NewTopic(BOOKING_EVENTS, 15, (short) 1);
+    }
 }

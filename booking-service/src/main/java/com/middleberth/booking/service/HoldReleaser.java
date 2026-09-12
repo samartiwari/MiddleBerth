@@ -40,6 +40,7 @@ public class HoldReleaser {
     private final SeatRepository seatRepo;
     private final WaitlistCounter waitlistCounter;
     private final HoldSettings holds;
+    private final Outbox outbox;
 
     /**
      * One batch, one transaction.
@@ -76,6 +77,7 @@ public class HoldReleaser {
             if (next.isPresent()) {
                 next.get().promoteTo(berth.getId());
                 berth.setStatus(SeatStatus.CONFIRMED);   // they already paid for the waitlisted ticket
+                outbox.ticketConfirmed(next.get(), berth.label());   // the mail nobody was expecting
                 waitlistCounter.release(booking.getTrainId(), booking.getTravelDate(), booking.getCoachClass());
             } else {
                 berth.setStatus(SeatStatus.FREE);

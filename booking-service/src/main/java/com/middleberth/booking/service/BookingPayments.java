@@ -2,6 +2,7 @@ package com.middleberth.booking.service;
 
 import com.middleberth.booking.domain.Booking;
 import com.middleberth.booking.domain.BookingStatus;
+import com.middleberth.booking.domain.Seat;
 import com.middleberth.booking.domain.SeatStatus;
 import com.middleberth.booking.dto.BookingResult;
 import com.middleberth.booking.repository.BookingRepository;
@@ -27,6 +28,7 @@ public class BookingPayments {
     private final BookingRepository bookingRepo;
     private final SeatRepository seatRepo;
     private final WaitlistCounter waitlistCounter;
+    private final Outbox outbox;
 
     /**
      * What a "paid" event did.
@@ -77,8 +79,10 @@ public class BookingPayments {
         booking.markPaid(paidAt);   // throws if it is not a hold any more
 
         if (booking.getStatus() == BookingStatus.CONFIRMED) {
-            seatRepo.findById(booking.getSeatId()).orElseThrow().setStatus(SeatStatus.CONFIRMED);
-            return BookingResult.confirmed(seatRepo.findById(booking.getSeatId()).orElseThrow().label());
+            Seat berth = seatRepo.findById(booking.getSeatId()).orElseThrow();
+            berth.setStatus(SeatStatus.CONFIRMED);
+            outbox.ticketConfirmed(booking, berth.label());
+            return BookingResult.confirmed(berth.label());
         }
         return BookingResult.waitlisted(booking.getWaitlistPos());
     }
@@ -96,11 +100,13 @@ public class BookingPayments {
             return PaymentApplied.UNKNOWN_BOOKING;
         }
         Booking booking = found.get();
-        return switch (booking.getStatus()) {
+        PaymentApplied applied = switch (booking.getStatus()) {
             case HELD, WAITLIST_HELD -> {
                 booking.markPaid(paidAt);
                 if (booking.getStatus() == BookingStatus.CONFIRMED) {
-                    seatRepo.findById(booking.getSeatId()).orElseThrow().setStatus(SeatStatus.CONFIRMED);
+                    Seat berth = seatRepo.findById(booking.getSeatId()).orElseThrow();
+                    berth.setStatus(SeatStatus.CONFIRMED);
+                    outbox.ticketConfirmed(booking, berth.label());
                     yield PaymentApplied.CONFIRMED;
                 }
                 yield PaymentApplied.WAITLISTED;
@@ -109,6 +115,14 @@ public class BookingPayments {
             case EXPIRED -> lateArrival(booking, paidAt);
             case REGRETTED -> PaymentApplied.NOT_PAYABLE;
         };
+
+        // Written here, in the transaction that just decided it. If any of this
+        // rolls back, the note goes with it and no mail is ever sent about
+        // something that did not happen.
+        if (applied.refund()) {
+            outbox.bookingCancelled(booking, applied.name());
+        }
+        return applied;
     }
 
     /**
@@ -135,6 +149,7 @@ public class BookingPayments {
         if (berth.isPresent()) {
             berth.get().setStatus(SeatStatus.CONFIRMED);
             booking.reinstateWithBerth(berth.get().getId(), paidAt);
+            outbox.ticketConfirmed(booking, berth.get().label());
             return PaymentApplied.HONOURED_LATE;
         }
 

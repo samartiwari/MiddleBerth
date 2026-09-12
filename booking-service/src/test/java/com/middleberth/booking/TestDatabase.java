@@ -19,6 +19,6 @@ final class TestDatabase {
     }
 
     static void wipe(JdbcTemplate jdbc) {
-        jdbc.execute("TRUNCATE booking, seat, quota_counter, train CASCADE");
+        jdbc.execute("TRUNCATE booking, seat, quota_counter, train, outbox CASCADE");
     }
 }

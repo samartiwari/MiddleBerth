@@ -1,0 +1,10 @@
+{
+  "type": "TICKET_CONFIRMED",
+  "userId": 5512,
+  "requestId": "A7X2",
+  "trainNumber": "12951",
+  "travelDate": "2026-08-25",
+  "coachClass": "3A",
+  "berth": "B2-31",
+  "reason": null
+}
