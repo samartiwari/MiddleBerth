@@ -1,6 +1,7 @@
 package com.middleberth.booking.exception;
 
 import com.middleberth.booking.payment.PaymentUnavailableException;
+import com.middleberth.booking.kafka.QueueUnavailableException;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.converter.HttpMessageNotReadableException;
 import org.springframework.web.bind.MethodArgumentNotValidException;
@@ -58,6 +59,17 @@ public class ApiExceptionHandler {
     @ResponseStatus(HttpStatus.SERVICE_UNAVAILABLE)
     public ApiError paymentUnavailable(PaymentUnavailableException e) {
         return new ApiError("PAYMENT_UNAVAILABLE", "Could not start the payment — your hold is safe, try again");
+    }
+
+    /**
+     * The queue would not take the request. Nothing has happened, so trying again
+     * with the same request id is both safe and the right thing to do.
+     */
+    @ExceptionHandler(QueueUnavailableException.class)
+    @ResponseStatus(HttpStatus.SERVICE_UNAVAILABLE)
+    public ApiError queueUnavailable(QueueUnavailableException e) {
+        return new ApiError("QUEUE_UNAVAILABLE",
+                "Could not accept the request — nothing was booked, try again with the same requestId");
     }
 
     /** Malformed JSON, or a date that isn't a date. */

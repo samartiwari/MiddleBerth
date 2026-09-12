@@ -25,6 +25,23 @@ for _ in $(seq 1 "$TRIES"); do
 done
 curl -fsS "$BASE/api/trains" >/dev/null
 
+# The line above only proves search is alive. Check the BOOKING path as well: a
+# restarted booking-service leaves the gateway answering 5xx for a while, and a
+# load test started in that window has every request fail at once. Learned the
+# hard way, with 2,000 requests failing in the first second.
+printf 'waiting for the booking path '
+token=$(curl -fsS -X POST "$BASE/auth/token" -H 'Content-Type: application/json' \
+        -d '{"userId":1}' | sed -E 's/.*"token":"([^"]+)".*/\1/')
+for _ in $(seq 1 "$TRIES"); do
+    if curl -fsS "$BASE/api/bookings/READYCHECK" -H "Authorization: Bearer $token" >/dev/null 2>&1; then
+        echo "ok"
+        break
+    fi
+    printf '.'
+    sleep 2
+done
+curl -fsS "$BASE/api/bookings/READYCHECK" -H "Authorization: Bearer $token" >/dev/null
+
 # Wait for the SEEDER to finish, not merely for berths to appear. It seeds the
 # berths first and the passenger second, so "berths exist" is not "seeding done" —
 # a booking made in that gap gets confirmed with nobody to mail, and the mail is

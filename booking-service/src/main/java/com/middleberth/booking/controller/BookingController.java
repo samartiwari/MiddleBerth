@@ -12,6 +12,8 @@ import lombok.RequiredArgsConstructor;
 import org.springframework.http.HttpStatus;
 import org.springframework.web.bind.annotation.*;
 
+import java.util.concurrent.CompletableFuture;
+
 /**
  * Who is calling comes ONLY from the X-User-Id header, which the gateway sets
  * from the checked token after throwing away any the client sent.
@@ -40,11 +42,15 @@ public class BookingController {
      */
     @PostMapping
     @ResponseStatus(HttpStatus.ACCEPTED)
-    public BookingAccepted book(@RequestHeader(USER_ID) Long userId,
-                                @Valid @RequestBody BookingRequest request) {
+    public CompletableFuture<BookingAccepted> book(@RequestHeader(USER_ID) Long userId,
+                                                   @Valid @RequestBody BookingRequest request) {
         bookingService.assertTrainExists(request.trainNumber());   // 404 now, not silence later
-        publisher.publish(request.toCommand(userId));
-        return BookingAccepted.pending(request.requestId());
+
+        // 202 only once the broker has really taken it — but the thread is not
+        // held while that happens. Returning the future lets Spring release the
+        // thread and write the reply when the acknowledgement arrives.
+        return publisher.publish(request.toCommand(userId))
+                .thenApply(queued -> BookingAccepted.pending(request.requestId()));
     }
 
     /**
