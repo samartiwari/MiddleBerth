@@ -66,6 +66,16 @@ services:
     volumes:
       - payment-data:/var/lib/postgresql/data
 
+  # The gateway owns logging in, so it owns the accounts.
+  auth-db:
+    <<: *postgres
+    environment:
+      POSTGRES_USER: middleberth
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-middleberth}
+      POSTGRES_DB: auth
+    volumes:
+      - auth-data:/var/lib/postgresql/data
+
   notification-db:
     <<: *postgres
     environment:
@@ -233,9 +243,17 @@ services:
       SEARCH_URL: http://search-service:8081
       PAYMENT_URL: http://payment-service:8083
       SPRING_DATA_REDIS_HOST: redis
+      R2DBC_URL: r2dbc:postgresql://auth-db:5432/auth
+      FLYWAY_URL: jdbc:postgresql://auth-db:5432/auth
+      DB_USERNAME: middleberth
+      DB_PASSWORD: ${POSTGRES_PASSWORD:-middleberth}
       # Anyone who knows this can mint tokens for any user. Set JWT_SECRET for
       # anything that is not a laptop.
       JWT_SECRET: ${JWT_SECRET:-dev-only-secret-change-me-it-must-be-32-bytes-or-more}
+      # ON for the laptop, because the load test needs two thousand identities and
+      # BCrypt takes a tenth of a second each. OFF anywhere real — with this on,
+      # anybody can be anybody. See deploy/going-live.md.
+      AUTH_DEMO_TOKENS: ${AUTH_DEMO_TOKENS:-true}
     healthcheck:
       test: ["CMD-SHELL", "wget -qO- http://localhost:8000/actuator/health | grep -q UP"]
       interval: 10s
@@ -244,6 +262,7 @@ services:
       start_period: 60s
     depends_on:
       redis: {condition: service_healthy}
+      auth-db: {condition: service_healthy}
       booking-service: {condition: service_started}
       search-service: {condition: service_started}
       payment-service: {condition: service_started}
@@ -284,6 +303,7 @@ services:
     restart: "no"
 
 volumes:
+  auth-data:
   booking-data:
   search-data:
   payment-data:

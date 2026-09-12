@@ -36,6 +36,10 @@ stringData:
   POSTGRES_PASSWORD: middleberth
   JWT_SECRET: dev-only-secret-change-me-it-must-be-32-bytes-or-more
   RAZORPAY_WEBHOOK_SECRET: dev-only-webhook-secret-not-for-real-use
+  # Empty here. Live mode needs both, and payment-service refuses to start
+  # without them rather than failing every customer later.
+  RAZORPAY_KEY_ID: ""
+  RAZORPAY_KEY_SECRET: ""
 
 ---
 apiVersion: apps/v1
@@ -245,6 +249,58 @@ metadata:
   namespace: middleberth
 spec:
   selector: {app: notification-db}
+  ports: [{port: 5432, targetPort: 5432}]
+
+---
+# The gateway owns logging in, so it owns the accounts.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: auth-db
+  namespace: middleberth
+spec:
+  replicas: 1
+  selector:
+    matchLabels: {app: auth-db}
+  template:
+    metadata:
+      labels: {app: auth-db}
+    spec:
+      enableServiceLinks: false   # see the note above
+      containers:
+        - name: postgres
+          image: postgres:16-alpine
+          env:
+            - name: POSTGRES_DB
+              value: auth
+            - name: POSTGRES_USER
+              valueFrom: {configMapKeyRef: {name: middleberth-config, key: POSTGRES_USER}}
+            - name: POSTGRES_PASSWORD
+              valueFrom: {secretKeyRef: {name: middleberth-secrets, key: POSTGRES_PASSWORD}}
+            - name: PGDATA
+              value: /var/lib/postgresql/data/pgdata
+          ports: [{containerPort: 5432}]
+          volumeMounts:
+            - {name: data, mountPath: /var/lib/postgresql/data}
+          # Not ready until it can actually answer. Until then, no service sends
+          # it traffic and no pod that depends on it gets past its own probe.
+          readinessProbe:
+            exec: {command: [sh, -c, "pg_isready -U middleberth -d auth"]}
+            initialDelaySeconds: 5
+            periodSeconds: 5
+          resources:
+            requests: {cpu: 100m, memory: 128Mi}
+            limits: {cpu: "1", memory: 512Mi}
+      volumes:
+        - {name: data, emptyDir: {}}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: auth-db
+  namespace: middleberth
+spec:
+  selector: {app: auth-db}
   ports: [{port: 5432, targetPort: 5432}]
 
 ---

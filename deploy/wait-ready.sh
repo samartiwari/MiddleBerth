@@ -23,7 +23,13 @@ for _ in $(seq 1 "$TRIES"); do
     printf '.'
     sleep 2
 done
-curl -fsS "$BASE/api/trains" >/dev/null
+if ! curl -fsS "$BASE/api/trains" >/dev/null 2>&1; then
+    echo
+    echo "the front door is not answering. If the gateway was just recreated, nginx"
+    echo "is probably still dialling its old address — it resolves the name once, at"
+    echo "startup. Fix:  docker compose restart nginx"
+    exit 1
+fi
 
 # The line above only proves search is alive. Check the BOOKING path as well: a
 # restarted booking-service leaves the gateway answering 5xx for a while, and a

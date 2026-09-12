@@ -45,7 +45,7 @@ kubectl -n kube-system patch deployment metrics-server --type=json \
 
 echo "== databases, queue, cache"
 kubectl apply -f k8s/infra.yaml >/dev/null
-for d in booking-db search-db payment-db notification-db redis kafka; do
+for d in booking-db search-db payment-db notification-db auth-db redis kafka; do
     kubectl -n middleberth rollout status deploy/$d --timeout=180s
 done
 

@@ -29,7 +29,11 @@ import static org.springframework.http.MediaType.APPLICATION_JSON;
  * X-User-Id header they trust.
  */
 @Import(TestcontainersConfiguration.class)
-@SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
+// demo-tokens: these tests are about routing, headers and limits, not about
+// logging in. Signing up two dozen accounts with BCrypt to test a route would
+// only make them slow. Logging in for real is AuthTest's job.
+@SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT,
+                properties = "middleberth.auth.demo-tokens=true")
 @AutoConfigureWebTestClient
 class GatewayTest {
 

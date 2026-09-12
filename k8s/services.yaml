@@ -171,6 +171,10 @@ spec:
               valueFrom: {configMapKeyRef: {name: middleberth-config, key: RAZORPAY_MODE}}
             - name: RAZORPAY_WEBHOOK_SECRET
               valueFrom: {secretKeyRef: {name: middleberth-secrets, key: RAZORPAY_WEBHOOK_SECRET}}
+            - name: RAZORPAY_KEY_ID
+              valueFrom: {secretKeyRef: {name: middleberth-secrets, key: RAZORPAY_KEY_ID}}
+            - name: RAZORPAY_KEY_SECRET
+              valueFrom: {secretKeyRef: {name: middleberth-secrets, key: RAZORPAY_KEY_SECRET}}
             # The JVM inside a container must be told what it may use, or it sizes
             # the heap from the whole machine and gets killed for going over.
             - {name: JAVA_TOOL_OPTIONS, value: "-XX:MaxRAMPercentage=70 -Dnetworkaddress.cache.ttl=5"}
@@ -278,6 +282,14 @@ spec:
           imagePullPolicy: IfNotPresent
           ports: [{containerPort: 8000}]
           env:
+            - {name: R2DBC_URL, value: "r2dbc:postgresql://auth-db:5432/auth"}
+            - {name: FLYWAY_URL, value: "jdbc:postgresql://auth-db:5432/auth"}
+            - name: DB_USERNAME
+              valueFrom: {configMapKeyRef: {name: middleberth-config, key: POSTGRES_USER}}
+            - name: DB_PASSWORD
+              valueFrom: {secretKeyRef: {name: middleberth-secrets, key: POSTGRES_PASSWORD}}
+            # OFF. With it on, anybody can be anybody.
+            - {name: AUTH_DEMO_TOKENS, value: "false"}
             - {name: BOOKING_URL, value: "http://booking-service:8080"}
             - {name: SEARCH_URL, value: "http://search-service:8081"}
             - {name: PAYMENT_URL, value: "http://payment-service:8083"}

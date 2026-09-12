@@ -23,19 +23,38 @@ STARTED_AT=$(date -u +%Y-%m-%dT%H:%M:%SZ)
 
 say() { printf '\n== %s\n' "$1"; }
 
-say "token for user $USER_ID"
-TOKEN=$(curl -fsS -X POST "$BASE/auth/token" -H 'Content-Type: application/json' \
-        -d "{\"userId\":$USER_ID}" | sed -E 's/.*"token":"([^"]+)".*/\1/')
-[ -n "$TOKEN" ] || { echo "no token"; exit 1; }
+# A real account, not the demo endpoint. Signing up the first time and logging in
+# afterwards, so both halves are exercised on every run.
+EMAIL="smoke-$(date +%s)@middleberth.invalid"
+PASSWORD="smoke test password"
+
+say "sign up $EMAIL"
+TOKEN=$(curl -fsS -X POST "$BASE/auth/signup" -H 'Content-Type: application/json' \
+        -d "{\"email\":\"$EMAIL\",\"password\":\"$PASSWORD\"}" \
+        | sed -E 's/.*"token":"([^"]+)".*/\1/')
+[ -n "$TOKEN" ] || { echo "signup failed"; exit 1; }
 echo "ok"
 
+say "log in as the same person"
+TOKEN=$(curl -fsS -X POST "$BASE/auth/login" -H 'Content-Type: application/json' \
+        -d "{\"email\":\"$EMAIL\",\"password\":\"$PASSWORD\"}" \
+        | sed -E 's/.*"token":"([^"]+)".*/\1/')
+[ -n "$TOKEN" ] || { echo "login failed"; exit 1; }
+echo "ok"
+
+say "the wrong password is refused"
+code=$(curl -s -o /dev/null -w '%{http_code}' -X POST "$BASE/auth/login" \
+       -H 'Content-Type: application/json' \
+       -d "{\"email\":\"$EMAIL\",\"password\":\"not my password\"}")
+[ "$code" = "401" ] || { echo "expected 401, got $code"; exit 1; }
+echo "401, as it should be"
+
 say "the master list: add a passenger, then read it back"
-# 201 the first time, 409 every time after — the same person is only on the list
-# once, and that is the point of it.
+# A brand new account each run, so this is always the first time: 201.
 curl -sS -X POST "$BASE/api/passengers" -H "Authorization: Bearer $TOKEN" \
      -H 'Content-Type: application/json' \
      -d '{"name":"Demo Passenger","email":"demo@middleberth.invalid","phone":"9876543210"}' \
-     -o /dev/null -w 'added: %{http_code} (409 = already on the list)\n'
+     -o /dev/null -w 'added: %{http_code}\n'
 curl -fsS "$BASE/api/passengers" -H "Authorization: Bearer $TOKEN"
 echo
 

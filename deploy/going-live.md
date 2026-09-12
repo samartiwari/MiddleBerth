@@ -55,7 +55,22 @@ are enough.
 Without it the system still works — a payment is picked up by the reconciliation
 job instead of the webhook — but minutes later rather than seconds.
 
-## 4. The rest
+## 4. Accounts
+
+People sign up with an email and a password, which is BCrypt hashed before it is
+stored. Nothing else is needed — but one thing must be OFF:
+
+    AUTH_DEMO_TOKENS=false    # the default. With it TRUE, /auth/token hands out a
+                              # token for any user id with no password at all,
+                              # which makes every other protection pointless.
+                              # docker compose turns it on for the laptop, because
+                              # the load test needs two thousand identities and
+                              # BCrypt takes a tenth of a second each.
+
+Failed logins are counted per account in Redis: five wrong answers and that
+account is locked for fifteen minutes. Signups are capped per IP address.
+
+## 5. The rest
 
     JWT_SECRET=...            # 32+ random bytes. Anyone who knows it can mint a
                               # token for any user.
@@ -66,9 +81,9 @@ repository, and never in a chat message.
 
 ## What is still not real
 
-- **Login.** `/auth/token` hands out a token for any user id you ask for. There
-  are no accounts and no passwords, on purpose: the project is about what happens
-  after login.
+- **No password reset.** Forgetting a password means losing the account. The mail
+  pipeline is there, so it is a small addition, but it is not built.
+- **No email verification.** You can sign up with an address you do not own.
 - **No PNR.** The booking reference is the request id.
 - **No cancellation by the passenger.** Refunds happen automatically when a
   payment cannot be honoured.

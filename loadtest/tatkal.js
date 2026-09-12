@@ -82,6 +82,14 @@ export const options = {
     summaryTrendStats: ['avg', 'min', 'med', 'p(90)', 'p(95)', 'p(99)', 'max'],
 };
 
+/**
+ * The demo token endpoint, on purpose.
+ *
+ * Real signup uses BCrypt, which takes about a tenth of a second by design — two
+ * thousand of those is minutes of pure hashing, and what is being measured here
+ * is seat contention, not a password hash. The endpoint only exists when
+ * AUTH_DEMO_TOKENS=true, which is the laptop and never production.
+ */
 function login(userId) {
     const res = http.post(`${BASE}/auth/token`, JSON.stringify({ userId }),
         { headers: { 'Content-Type': 'application/json' }, tags: { name: 'login' } });
