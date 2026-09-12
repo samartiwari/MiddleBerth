@@ -17,6 +17,9 @@ REQUEST_ID="SMOKE$(date +%s)"
 TRAIN=12951
 DATE=$(date -u -d "+1 day" +%Y-%m-%d)
 WEBHOOK_SECRET="${RAZORPAY_WEBHOOK_SECRET:-dev-only-webhook-secret-not-for-real-use}"
+# Only mail sent AFTER this moment counts. Otherwise the check passes on the mail
+# from a previous run still sitting in the log — which it did, until I noticed.
+STARTED_AT=$(date -u +%Y-%m-%dT%H:%M:%SZ)
 
 say() { printf '\n== %s\n' "$1"; }
 
@@ -64,12 +67,22 @@ for _ in $(seq 1 30); do
 done
 case "$STATUS" in *CONFIRMED*) ;; *) echo "never confirmed: $STATUS"; exit 1 ;; esac
 
-say "the mail (notification-service log)"
-if { docker compose logs --tail 20 notification-service 2>/dev/null || true
-     PATH="$HOME/.local/bin:$PATH" kubectl -n middleberth logs --tail 20 deploy/notification-service 2>/dev/null || true
-   } | grep "MAIL"; then
-    printf '\nall the way through: booked, paid, confirmed, mailed.\n'
-else
-    echo "confirmed, but no mail went out — is there a passenger row for $USER_ID?"
-    exit 1
-fi
+# The mail comes a second or two after the ticket: the note goes into the outbox
+# with the booking, a job picks it up, notification-service sends it.
+mail_since() {
+    docker compose logs --since "$STARTED_AT" notification-service 2>/dev/null || true
+    PATH="$HOME/.local/bin:$PATH" kubectl -n middleberth logs --since-time="$STARTED_AT" \
+        deploy/notification-service 2>/dev/null || true
+}
+
+say "the mail"
+for _ in $(seq 1 30); do
+    if mail_since | grep "MAIL to"; then
+        printf '\nall the way through: booked, paid, confirmed, mailed.\n'
+        exit 0
+    fi
+    sleep 1
+done
+
+echo "confirmed, but no mail went out — is there a passenger row for $USER_ID?"
+exit 1
