@@ -86,7 +86,7 @@ say "ask Razorpay for a real order"
 PAY=$(curl -fsS -X POST "$BASE/api/bookings/$REQUEST_ID/pay" "${AUTH[@]}")
 ORDER=$(echo "$PAY" | jq -r .orderId)
 AMOUNT=$(echo "$PAY" | jq -r .amountPaise)
-BASE=$(echo "$PAY" | jq -r .baseFarePaise)
+BASE_FARE=$(echo "$PAY" | jq -r .baseFarePaise)
 FEE=$(echo "$PAY" | jq -r .convenienceFeePaise)
 KEY=$(echo "$PAY" | jq -r .keyId)
 case "$ORDER" in
@@ -94,7 +94,7 @@ case "$ORDER" in
     *) die "that is not a real Razorpay order id: $ORDER — is the service still stubbed?" ;;
 esac
 printf '%s for ₹%s  (fare ₹%s + convenience fee ₹%s)\n' \
-    "$ORDER" "$((AMOUNT / 100))" "$((BASE / 100))" "$((FEE / 100))"
+    "$ORDER" "$((AMOUNT / 100))" "$((BASE_FARE / 100))" "$((FEE / 100))"
 
 # Razorpay's checkout script will not run from a file:// page, so serve the one
 # next to this script for as long as we need it.
@@ -140,7 +140,7 @@ docker compose logs --tail=40 notification-service | grep -i "PNR $PNR" -A2 -B6 
 
 say "the part that has never been proved against real Razorpay"
 cat <<EOF
-Cancelling refunds the FARE (₹$((BASE / 100))), not the convenience fee (₹$((FEE / 100))).
+Cancelling refunds the FARE (₹$((BASE_FARE / 100))), not the convenience fee (₹$((FEE / 100))).
 The fee is already spent: Razorpay took its cut out of this payment on the way in
 and does not give it back, so refunding the whole ₹$((AMOUNT / 100)) would mean paying out
 money that never arrived. IRCTC keeps its convenience fee for the same reason.
@@ -163,7 +163,7 @@ done
 cat <<EOF
 
 == check it yourself
-Razorpay dashboard -> Transactions -> Refunds. There should be one for ₹$((BASE / 100))
+Razorpay dashboard -> Transactions -> Refunds. There should be one for ₹$((BASE_FARE / 100))
 against the payment for order $ORDER — the fare, with the convenience fee kept.
 
 If it is there, every path in this system has now been run against real Razorpay:
