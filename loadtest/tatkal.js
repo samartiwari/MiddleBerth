@@ -48,40 +48,59 @@ const rateLimited = new Counter('rate_limited_429');
 const confirmed = new Counter('paid_and_confirmed');
 const decided = new Rate('decided_within_15s');
 
+// BROWSE=0 runs the bookers alone.
+//
+// Two different questions, so two different runs. With browsing on, the question
+// is "does search stay fast while booking is on fire". With it off, the question
+// is "how much booking can this do" — and the answer is not buried under 12,000
+// searches a minute that the test sends at a fixed rate no matter how fast the
+// system is, which made a third of the old request count the test's own setting.
+const BROWSE = (__ENV.BROWSE || '1') !== '0';
+
+const scenarios = {
+    // The spike. Every user starts at once and books exactly once.
+    tatkal: {
+        executor: 'per-vu-iterations',
+        vus: VUS,
+        iterations: 1,
+        maxDuration: '3m',
+    },
+};
+
+if (BROWSE) {
+    // Meanwhile, people are browsing. Search must stay fast while booking is
+    // on fire — it reads one Redis key and never touches booking's database.
+    scenarios.browsing = {
+        executor: 'constant-arrival-rate',
+        rate: 200,
+        timeUnit: '1s',
+        duration: '60s',
+        preAllocatedVUs: 50,
+        exec: 'browse',
+    };
+}
+
+const thresholds = {
+    // Intake is supposed to be a couple of milliseconds: validate, drop it on
+    // Kafka, reply 202. If this climbs, the front door is doing too much.
+    'http_req_duration{name:book}': ['p(95)<500', 'p(99)<1000'],
+    'decided_within_15s': ['rate>0.95'],
+    // Not limits, just a way to see each step in the summary: k6 only reports
+    // a tag that some threshold mentions.
+    'http_req_duration{name:login}': ['p(99)<60000'],
+    'http_req_duration{name:poll}': ['p(99)<60000'],
+    'http_req_duration{name:pay}': ['p(99)<60000'],
+    'http_req_duration{name:webhook}': ['p(99)<60000'],
+};
+
+if (BROWSE) {
+    // Browsing must not suffer because booking is busy.
+    thresholds['http_req_duration{name:search}'] = ['p(99)<500'];
+}
+
 export const options = {
-    scenarios: {
-        // The spike. Every user starts at once and books exactly once.
-        tatkal: {
-            executor: 'per-vu-iterations',
-            vus: VUS,
-            iterations: 1,
-            maxDuration: '3m',
-        },
-        // Meanwhile, people are browsing. Search must stay fast while booking is
-        // on fire — it reads one Redis key and never touches booking's database.
-        browsing: {
-            executor: 'constant-arrival-rate',
-            rate: 200,
-            timeUnit: '1s',
-            duration: '60s',
-            preAllocatedVUs: 50,
-            exec: 'browse',
-        },
-    },
-    thresholds: {
-        // Intake is supposed to be a couple of milliseconds: validate, drop it on
-        // Kafka, reply 202. If this climbs, the front door is doing too much.
-        'http_req_duration{name:book}': ['p(95)<500', 'p(99)<1000'],
-        // Browsing must not suffer because booking is busy.
-        'http_req_duration{name:search}': ['p(99)<500'],
-        'decided_within_15s': ['rate>0.95'],
-        // Not limits, just a way to see each step in the summary: k6 only reports
-        // a tag that some threshold mentions.
-        'http_req_duration{name:login}': ['p(99)<60000'],
-        'http_req_duration{name:poll}': ['p(99)<60000'],
-        'http_req_duration{name:pay}': ['p(99)<60000'],
-        'http_req_duration{name:webhook}': ['p(99)<60000'],
-    },
+    scenarios,
+    thresholds,
     summaryTrendStats: ['avg', 'min', 'med', 'p(90)', 'p(95)', 'p(99)', 'max'],
 };
 

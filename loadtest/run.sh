@@ -67,18 +67,57 @@ fi
 echo "== berths available before the run"
 psql_booking -c "SELECT status, count(*) FROM seat WHERE travel_date = CURRENT_DATE + 1 GROUP BY status;"
 
-echo "== $USERS users, all at once, travel date $DATE"
+# Per-request data, only when asked for: METRICS_DIR=/some/folder.
+#
+# The summary k6 prints is averaged over the whole run, which hides the burst —
+# the second that matters is the busiest one, and only per-request timestamps can
+# find it. Written as the calling user, because the k6 image runs as a user of its
+# own that cannot write into this folder. And the folder must live under $HOME:
+# snap Docker cannot see /tmp at all, and a mount it cannot see is silently empty.
+K6_MOUNT=()
+K6_OUT=()
+if [ -n "${METRICS_DIR:-}" ]; then
+    mkdir -p "$METRICS_DIR"
+    # Always absolute. Docker reads a relative path after -v as the NAME of a
+    # volume, refuses the slashes in it, and k6 never starts — which is exactly
+    # what happened the first time this was run with OUT=loadtest/results/...
+    METRICS_DIR="$(cd "$METRICS_DIR" && pwd)"
+
+    # Snap Docker cannot see outside $HOME. The mount does not fail; it quietly
+    # gives k6 an empty folder of its own, the data lands nowhere, and every
+    # per-second count reads zero as if nothing had happened.
+    if [ "$(readlink -f "$(command -v docker)")" = /usr/bin/snap ] && [ "${METRICS_DIR#"$HOME"/}" = "$METRICS_DIR" ]; then
+        echo "refusing to run: METRICS_DIR=$METRICS_DIR is outside \$HOME, and snap Docker cannot see it" >&2
+        exit 1
+    fi
+
+    K6_MOUNT=(-v "$METRICS_DIR:/out" --user "$(id -u):$(id -g)")
+    K6_OUT=(--out "csv=/out/metrics-$USERS.csv.gz")
+fi
+
+echo "== $USERS users, all at once, travel date $DATE, browsing ${BROWSE:-1}"
 K6_EXIT=0
 docker run --rm -i --network "$K6_NET" \
     -v "$PWD/loadtest:/loadtest:ro" \
+    ${K6_MOUNT[@]+"${K6_MOUNT[@]}"} \
     -e BASE_URL="$BASE" \
     -e TRAVEL_DATE="$DATE" \
     -e VUS="$USERS" \
+    -e BROWSE="${BROWSE:-1}" \
     -e PAY_PERCENT="${PAY_PERCENT:-50}" \
     -e RAZORPAY_WEBHOOK_SECRET="${RAZORPAY_WEBHOOK_SECRET:-dev-only-webhook-secret-not-for-real-use}" \
     -e POLL_INTERVAL="${POLL_INTERVAL:-0.5}" \
     -e RUN_ID="$(date +%H%M%S)" \
-    grafana/k6:latest run /loadtest/tatkal.js || K6_EXIT=$?
+    grafana/k6:latest run ${K6_OUT[@]+"${K6_OUT[@]}"} /loadtest/tatkal.js || K6_EXIT=$?
+
+# 125 and above is Docker failing to start the container at all — k6 never ran.
+# Checking the database now would print "0 double bookings" for a test that did
+# not happen, which reads exactly like a pass. So stop, and say so.
+if [ "$K6_EXIT" -ge 125 ]; then
+    echo >&2
+    echo "!! the load generator never started (docker exit $K6_EXIT) — nothing was tested" >&2
+    exit "$K6_EXIT"
+fi
 
 echo
 echo "== now the part that matters"

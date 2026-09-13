@@ -27,3 +27,6 @@ STEPS.md
 
 # Docker compose local overrides
 docker-compose.override.yml
+
+# Load test output: per-request data runs to tens of megabytes a level.
+loadtest/results/
