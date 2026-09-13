@@ -31,6 +31,34 @@ Then:
 payment-service refuses to start in live mode without the keys, rather than
 coming up healthy and failing every customer.
 
+### The gateway's cut, and why refunds need it
+
+Razorpay takes its fee on the way **in** — about 2.36% (2% plus GST on the fee) —
+and does **not** return it when a payment is refunded. Charge 2,400 and 2,343.36
+arrives. The other 56.64 is gone.
+
+So a booking that collects exactly the fare can never refund exactly the fare.
+Ask Razorpay to do it anyway and it refuses with `invalid request sent`, which
+means "you do not have that much" and reads like a malformed request. That cost
+an afternoon to work out.
+
+Two things follow, and both are already handled:
+
+- **A convenience fee is charged on top** (`middleberth.convenience-fee-bps`,
+  3% by default) and is **not** refunded when a passenger cancels — so every
+  cancellation pays for itself. This is what IRCTC does and why their convenience
+  fee is never returned. The fee has to clear `cut / (1 - cut)` = 2.4171%, not the
+  2.36% cut itself; `ConvenienceFeeTest` asserts it.
+- **A refund we owe because WE failed** — money taken for a berth that could not
+  be given — still goes back in full, fee included. The company swallows the
+  gateway's cut, because keeping a service charge for a service never delivered
+  would be indefensible.
+
+One consequence worth knowing before the first cancellation in production: a
+refund is paid out of the account **balance**, not out of that payment. A brand
+new account with a single payment in it may have nothing to draw on. With real
+traffic there is always a balance and this never comes up.
+
 ## 2. Mail
 
     MAIL_MODE=smtp

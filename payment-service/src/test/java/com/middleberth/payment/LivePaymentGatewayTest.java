@@ -84,7 +84,7 @@ class LivePaymentGatewayTest {
 
     @Test
     void a_refund_carries_an_idempotency_key_so_a_retry_cannot_pay_twice() {
-        String refundId = gateway.refundInFull("pay_LiveTest999", 240000);
+        String refundId = gateway.refund("pay_LiveTest999", 240000);
 
         assertThat(refundId).startsWith("rfnd_");
         var refundCall = razorpay.seen().stream()
@@ -106,7 +106,7 @@ class LivePaymentGatewayTest {
     void a_payment_refunded_long_ago_is_not_refunded_again() {
         razorpay.alreadyRefunded("pay_LiveTest999");
 
-        String refundId = gateway.refundInFull("pay_LiveTest999", 240000);
+        String refundId = gateway.refund("pay_LiveTest999", 240000);
 
         assertThat(refundId).as("the refund it already had").isEqualTo("rfnd_FromBefore");
         assertThat(razorpay.refundsCreated()).as("no second payout").isZero();

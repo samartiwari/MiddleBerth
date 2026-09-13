@@ -67,7 +67,7 @@ class WebhookRetryTest {
         HttpHeaders headers = new HttpHeaders();
         headers.setContentType(MediaType.APPLICATION_JSON);
         String res = http.postForObject("/internal/orders",
-                new HttpEntity<>("{\"userId\":5512,\"requestId\":\"A7X2\",\"amountPaise\":240000}", headers),
+                new HttpEntity<>("{\"userId\":5512,\"requestId\":\"A7X2\",\"amountPaise\":240000,\"refundablePaise\":240000}", headers),
                 String.class);
         return res.replaceAll(".*\"orderId\":\"([^\"]+)\".*", "$1");
     }

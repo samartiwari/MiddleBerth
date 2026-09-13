@@ -36,13 +36,15 @@ public class StubPaymentGateway implements PaymentGateway {
     // ---------- refunds ----------
 
     private final Map<String, String> refundByPayment = new ConcurrentHashMap<>();
+    private final Map<String, Long> refundedAmountByPayment = new ConcurrentHashMap<>();
     private final AtomicInteger refundsPaidOut = new AtomicInteger();
 
     /** Safe to repeat: a payment already refunded gets its existing refund id back. */
     @Override
-    public String refundInFull(String paymentId, long amountPaise) {
+    public String refund(String paymentId, long amountPaise) {
         return refundByPayment.computeIfAbsent(paymentId, id -> {
             refundsPaidOut.incrementAndGet();          // money actually leaves only here
+            refundedAmountByPayment.put(id, amountPaise);
             return "rfnd_stub" + UUID.randomUUID().toString().replace("-", "").substring(0, 14);
         });
     }
@@ -50,6 +52,17 @@ public class StubPaymentGateway implements PaymentGateway {
     /** Test hook: how many refunds actually paid money out. */
     public int refundsPaidOut() {
         return refundsPaidOut.get();
+    }
+
+    /**
+     * Test hook: how much was actually handed back for a payment.
+     *
+     * Worth recording separately from the count, because "a refund happened" and
+     * "the right amount went back" are different claims, and only the second one
+     * catches a passenger being refunded the convenience fee they were not owed.
+     */
+    public Long refundedAmountFor(String paymentId) {
+        return refundedAmountByPayment.get(paymentId);
     }
 
     // ---------- payments whose webhook never arrived ----------
@@ -71,6 +84,7 @@ public class StubPaymentGateway implements PaymentGateway {
 
     public void reset() {
         refundByPayment.clear();
+        refundedAmountByPayment.clear();
         refundsPaidOut.set(0);
         capturedByOrder.clear();
     }

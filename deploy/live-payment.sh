@@ -86,12 +86,15 @@ say "ask Razorpay for a real order"
 PAY=$(curl -fsS -X POST "$BASE/api/bookings/$REQUEST_ID/pay" "${AUTH[@]}")
 ORDER=$(echo "$PAY" | jq -r .orderId)
 AMOUNT=$(echo "$PAY" | jq -r .amountPaise)
+BASE=$(echo "$PAY" | jq -r .baseFarePaise)
+FEE=$(echo "$PAY" | jq -r .convenienceFeePaise)
 KEY=$(echo "$PAY" | jq -r .keyId)
 case "$ORDER" in
     order_*) ;;
     *) die "that is not a real Razorpay order id: $ORDER — is the service still stubbed?" ;;
 esac
-echo "$ORDER for ₹$((AMOUNT / 100))"
+printf '%s for ₹%s  (fare ₹%s + convenience fee ₹%s)\n' \
+    "$ORDER" "$((AMOUNT / 100))" "$((BASE / 100))" "$((FEE / 100))"
 
 # Razorpay's checkout script will not run from a file:// page, so serve the one
 # next to this script for as long as we need it.
@@ -101,8 +104,16 @@ trap 'kill $PAGE_PID 2>/dev/null || true' EXIT
 sleep 1
 
 URL="http://127.0.0.1:$PAGE_PORT/checkout.html?key=$KEY&order=$ORDER&amount=$AMOUNT"
-say "YOUR TURN — open this and pay with card 4111 1111 1111 1111"
+say "YOUR TURN — open this and pay"
 printf '\n   %s\n\n' "$URL"
+cat <<'CARDS'
+   Use a DOMESTIC test card, any future expiry, any CVV, then "Success":
+       Visa debit          4100 2800 0000 1007
+       Mastercard credit   5555 5100 0008 1006
+
+   Not 4111 1111 1111 1111 — Razorpay reads that as an international card, and
+   most Indian test accounts have international payments switched off.
+CARDS
 command -v xdg-open >/dev/null && xdg-open "$URL" >/dev/null 2>&1 || true
 
 # ---------------------------------------------------------------- confirm
@@ -128,6 +139,12 @@ docker compose logs --tail=40 notification-service | grep -i "PNR $PNR" -A2 -B6 
 # ---------------------------------------------------------------- refund
 
 say "the part that has never been proved against real Razorpay"
+cat <<EOF
+Cancelling refunds the FARE (₹$((BASE / 100))), not the convenience fee (₹$((FEE / 100))).
+The fee is already spent: Razorpay took its cut out of this payment on the way in
+and does not give it back, so refunding the whole ₹$((AMOUNT / 100)) would mean paying out
+money that never arrived. IRCTC keeps its convenience fee for the same reason.
+EOF
 read -rp "cancel this ticket and ask Razorpay for a real refund? [y/N] " ANSWER
 [ "$ANSWER" = y ] || { echo "left booked. PNR $PNR"; exit 0; }
 
@@ -146,8 +163,8 @@ done
 cat <<EOF
 
 == check it yourself
-Razorpay dashboard -> Transactions -> Refunds. There should be one, full amount,
-against payment for order $ORDER.
+Razorpay dashboard -> Transactions -> Refunds. There should be one for ₹$((BASE / 100))
+against the payment for order $ORDER — the fare, with the convenience fee kept.
 
 If it is there, every path in this system has now been run against real Razorpay:
 orders, payment, reconciliation and refund.

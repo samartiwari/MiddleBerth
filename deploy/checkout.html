@@ -7,12 +7,27 @@
   dd { margin: 0; font-family: ui-monospace, monospace; }
   button { font: inherit; padding: .6rem 1.2rem; margin-top: 1.5rem; cursor: pointer; }
   .note { color: #666; font-size: .9em; margin-top: 2rem; }
+  .warn { border-left: 3px solid #c62828; padding-left: .8rem; color: #444; }
+  ul { padding-left: 1.2rem; }
+  li { margin: .3rem 0; }
 </style>
 
 <h1>Pay for your berth</h1>
 
-<p>This opens Razorpay's real checkout in <strong>test mode</strong>. No money moves.
-Use card <code>4111 1111 1111 1111</code>, any future expiry, any CVV.</p>
+<p>This opens Razorpay's real checkout in <strong>test mode</strong>. No money moves.</p>
+
+<p>Use one of Razorpay's <strong>domestic</strong> test cards, any future expiry, any
+CVV, and click <strong>Success</strong> on the bank screen:</p>
+
+<ul>
+  <li>Visa debit &mdash; <code>4100 2800 0000 1007</code></li>
+  <li>Mastercard credit &mdash; <code>5555 5100 0008 1006</code></li>
+</ul>
+
+<p class="warn">Not <code>4111 1111 1111 1111</code>. That is a generic dummy number
+and Razorpay reads it as an <em>international</em> card, which most Indian test
+accounts have switched off &mdash; it fails with &ldquo;International cards are not
+supported&rdquo;.</p>
 
 <dl id="details"></dl>
 <button id="pay">Open Razorpay checkout</button>

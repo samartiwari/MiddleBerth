@@ -29,6 +29,14 @@ public class Payment {
     @Column(name = "amount_paise", nullable = false)
     private long amountPaise;
 
+    /**
+     * The ticket's share of what was charged. Less than amountPaise by the
+     * convenience fee, which is what pays the gateway and is not given back when a
+     * passenger cancels of their own accord.
+     */
+    @Column(name = "refundable_paise", nullable = false)
+    private long refundablePaise;
+
     @Column(name = "currency", nullable = false, length = 3)
     private String currency;
 
@@ -52,12 +60,13 @@ public class Payment {
     private OffsetDateTime createdAt;
 
     public static Payment created(String orderId, Long userId, String requestId,
-                                  long amountPaise, String currency) {
+                                  long amountPaise, long refundablePaise, String currency) {
         Payment p = new Payment();
         p.orderId = orderId;
         p.userId = userId;
         p.requestId = requestId;
         p.amountPaise = amountPaise;
+        p.refundablePaise = refundablePaise;
         p.currency = currency;
         p.status = PaymentStatus.CREATED;
         return p;

@@ -33,11 +33,17 @@ public class PaymentClient {
         this.rest = builder.baseUrl(paymentUrl).requestFactory(timeouts).build();
     }
 
-    public PaymentOrder createOrder(long userId, String requestId, long amountPaise) {
+    /**
+     * amountPaise is what the customer is charged; refundablePaise is how much of
+     * that is the ticket itself. They differ by the convenience fee, which is not
+     * given back when a passenger cancels — see FareSettings for why that matters.
+     */
+    public PaymentOrder createOrder(long userId, String requestId, long amountPaise, long refundablePaise) {
         try {
             return rest.post()
                     .uri("/internal/orders")
-                    .body(Map.of("userId", userId, "requestId", requestId, "amountPaise", amountPaise))
+                    .body(Map.of("userId", userId, "requestId", requestId,
+                            "amountPaise", amountPaise, "refundablePaise", refundablePaise))
                     .retrieve()
                     .body(PaymentOrder.class);
         } catch (RestClientException e) {

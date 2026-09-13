@@ -223,13 +223,63 @@ class RefundAndReconcileTest {
         assertThat(paymentRepo.findByUserIdAndRequestId(77L, "RECENT")).as("still inside the week").isPresent();
     }
 
+    /**
+     * A passenger who changes their mind gets the TICKET back, not the convenience
+     * fee.
+     *
+     * That fee is already spent: the gateway took its cut out of the payment on the
+     * way in and does not return it. Refunding the whole 247,200 would mean paying
+     * out money that never arrived — which is exactly what the first live payment
+     * discovered, when Razorpay refused a full refund because the account did not
+     * hold that much.
+     */
+    @Test
+    void a_passenger_cancelling_is_refunded_the_fare_but_not_the_fee() throws Exception {
+        String orderId = createOrder(5512, "A7X2", 247_200, 240_000);   // 2,400 fare + 3%
+        pay(orderId, "pay_1", 247_200);
+
+        ask(cancellationRefundFor(5512, "A7X2"));
+        awaitStatus(5512, "A7X2", PaymentStatus.REFUNDED);
+
+        assertThat(gateway.refundedAmountFor("pay_1"))
+                .as("the fare, not the 7,200 paise that paid the gateway")
+                .isEqualTo(240_000);
+    }
+
+    /**
+     * When it is OUR failure, they get all of it — fee included.
+     *
+     * Money was taken for a berth we could not give. Keeping a service charge for a
+     * service never delivered would be indefensible, so the company swallows the
+     * gateway's cut instead.
+     */
+    @Test
+    void money_we_cannot_honour_is_returned_in_full_fee_included() throws Exception {
+        String orderId = createOrder(77, "B9", 247_200, 240_000);
+        pay(orderId, "pay_2", 247_200);
+
+        ask(refundFor(77, "B9", orderId, "pay_2", 247_200, "PAID_AFTER_DEADLINE"));
+        awaitStatus(77, "B9", PaymentStatus.REFUNDED);
+
+        assertThat(gateway.refundedAmountFor("pay_2"))
+                .as("everything, including the part the gateway kept")
+                .isEqualTo(247_200);
+    }
+
     // ---------- helpers ----------
 
     private String createOrder(long userId, String requestId, long amountPaise) throws Exception {
+        return createOrder(userId, requestId, amountPaise, amountPaise);
+    }
+
+    /** charged vs refundable differ by the convenience fee. */
+    private String createOrder(long userId, String requestId, long amountPaise, long refundablePaise)
+            throws Exception {
         HttpHeaders headers = new HttpHeaders();
         headers.setContentType(MediaType.APPLICATION_JSON);
         String body = """
-                {"userId":%d,"requestId":"%s","amountPaise":%d}""".formatted(userId, requestId, amountPaise);
+                {"userId":%d,"requestId":"%s","amountPaise":%d,"refundablePaise":%d}"""
+                .formatted(userId, requestId, amountPaise, refundablePaise);
         ResponseEntity<String> res = http.postForEntity("/internal/orders", new HttpEntity<>(body, headers), String.class);
         assertThat(res.getStatusCode()).isEqualTo(HttpStatus.OK);
         return json.readTree(res.getBody()).get("orderId").asText();
@@ -252,6 +302,18 @@ class RefundAndReconcileTest {
         headers.setContentType(MediaType.APPLICATION_JSON);
         headers.set("X-Razorpay-Signature", signature.sign(body));
         return http.postForEntity("/webhooks/razorpay", new HttpEntity<>(body, headers), String.class);
+    }
+
+    /**
+     * What booking-service actually sends for a cancellation: no order id, no
+     * payment id, no amount. It never stored an order id and does not need to —
+     * payment-service finds the payment by (user, booking) and knows what it took.
+     */
+    private String cancellationRefundFor(long userId, String requestId) {
+        return """
+                {"userId":%d,"requestId":"%s","orderId":null,"paymentId":null,\
+                "amountPaise":0,"reason":"CANCELLED_BY_PASSENGER"}"""
+                .formatted(userId, requestId);
     }
 
     private String refundFor(long userId, String requestId, String orderId, String paymentId,

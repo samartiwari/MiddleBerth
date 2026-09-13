@@ -22,7 +22,7 @@ import java.util.Optional;
  *
  * Holding a database connection across the gateway call is how a pool runs dry,
  * so the three are kept apart. What makes that safe is the gateway contract:
- * refundInFull is safe to repeat. A crash between 2 and 3 means this runs again,
+ * refund is safe to repeat. A crash between 2 and 3 means this runs again,
  * step 2 hands back the refund that already happened, and step 3 records it.
  *
  * Two requests for the same booking cannot race each other here either: they
@@ -52,15 +52,36 @@ public class RefundHandler {
             throw new NotCapturedYetException(request.orderId());   // retried — see the exception
         }
 
-        String refundId = gateway.refundInFull(payment.getRazorpayPaymentId(), payment.getAmountPaise());
+        long amount = amountToReturn(payment, request);
+        String refundId = gateway.refund(payment.getRazorpayPaymentId(), amount);
 
         tx.executeWithoutResult(s -> paymentRepo.lockByOrderId(payment.getOrderId())
                 .filter(p -> p.getStatus() == PaymentStatus.PAID)
                 .ifPresent(p -> p.markRefunded(refundId, Instant.now())));
 
-        log.warn("Refunded {} paise for order {} ({})", payment.getAmountPaise(),
+        log.warn("Refunded {} of {} paise for order {} ({})", amount, payment.getAmountPaise(),
                 payment.getOrderId(), request.reason());
         return RefundOutcome.REFUNDED;
+    }
+
+    /**
+     * How much goes back, and it depends entirely on WHOSE fault it was.
+     *
+     * A passenger who changes their mind gets the ticket price back, not the
+     * convenience fee. That fee has already been spent — the gateway took its cut
+     * on the way in and does not return it — so refunding it would mean paying it
+     * out of money that was never received. IRCTC does exactly this, for exactly
+     * this reason.
+     *
+     * Everything else here is OUR failure: money taken for a berth we could not
+     * give, a payment that reached us too late to honour. Keeping a fee for a
+     * service never delivered would be indefensible, so those get all of it —
+     * including the part the gateway kept, which the company then swallows.
+     */
+    private static long amountToReturn(Payment payment, RefundRequest request) {
+        return "CANCELLED_BY_PASSENGER".equals(request.reason())
+                ? payment.getRefundablePaise()
+                : payment.getAmountPaise();
     }
 
     /**

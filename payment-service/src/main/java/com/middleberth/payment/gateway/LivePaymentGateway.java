@@ -9,6 +9,7 @@ import org.springframework.http.client.JdkClientHttpRequestFactory;
 import org.springframework.stereotype.Component;
 import org.springframework.web.client.RestClient;
 import org.springframework.web.client.RestClientException;
+import org.springframework.web.client.RestClientResponseException;
 
 import java.net.http.HttpClient;
 import java.util.Map;
@@ -123,7 +124,7 @@ public class LivePaymentGateway implements PaymentGateway {
      * on a dead letter topic might be retried by a human days later.
      */
     @Override
-    public String refundInFull(String paymentId, long amountPaise) {
+    public String refund(String paymentId, long amountPaise) {
         Optional<String> already = existingRefund(paymentId, amountPaise);
         if (already.isPresent()) {
             log.info("Payment {} was already refunded as {}", paymentId, already.get());
@@ -152,7 +153,7 @@ public class LivePaymentGateway implements PaymentGateway {
         try {
             return razorpay.get().uri(path).retrieve().body(JsonNode.class);
         } catch (RestClientException e) {
-            throw new RazorpayException("Razorpay GET " + path + " failed", e);
+            throw new RazorpayException("Razorpay GET " + path + " failed" + detailOf(e), e);
         }
     }
 
@@ -164,8 +165,29 @@ public class LivePaymentGateway implements PaymentGateway {
             }
             return request.body(body).retrieve().body(JsonNode.class);
         } catch (RestClientException e) {
-            throw new RazorpayException("Razorpay POST " + path + " failed", e);
+            throw new RazorpayException("Razorpay POST " + path + " failed" + detailOf(e), e);
         }
+    }
+
+    /**
+     * What Razorpay actually said.
+     *
+     * Without this a refund that will not go through reads only as "POST ...
+     * failed", which is exactly as useful as silence — and a refund is the one
+     * failure somebody has to fix by hand, from a log, possibly days later. The
+     * status code and their description turn a guess into an instruction.
+     *
+     * Their error body is safe to repeat. It describes our REQUEST back to us and
+     * never contains the key we authenticated with, which is why this appends the
+     * response and never the request.
+     */
+    private static String detailOf(RestClientException e) {
+        if (e instanceof RestClientResponseException http) {
+            String body = http.getResponseBodyAsString();
+            return " — HTTP " + http.getStatusCode().value()
+                    + (body.isBlank() ? "" : " " + body.substring(0, Math.min(body.length(), 400)));
+        }
+        return e.getMessage() == null ? "" : " — " + e.getMessage();
     }
 
     private static boolean isBlank(String value) {

@@ -55,8 +55,15 @@ class PayNowTest {
         });
     }
 
+    /**
+     * Charged the fare PLUS the convenience fee, and told the breakdown.
+     *
+     * Somebody paying more than the fare is entitled to see why, and the two halves
+     * behave differently later: cancelling gives the fare back and keeps the fee,
+     * which is what pays the gateway's cut.
+     */
     @Test
-    void pay_now_on_your_hold_returns_an_order_for_the_fare() {
+    void pay_now_charges_the_fare_plus_the_convenience_fee() {
         book("A7X2", 5512);
 
         ResponseEntity<String> res = payNow("A7X2", 5512);
@@ -64,7 +71,9 @@ class PayNowTest {
         assertThat(res.getStatusCode()).isEqualTo(HttpStatus.OK);
         assertThat(res.getBody())
                 .contains("\"orderId\":\"order_stubtest\"")
-                .contains("\"amountPaise\":240000")          // the 3A fare
+                .contains("\"amountPaise\":247200")            // 2,400 fare + 3%
+                .contains("\"baseFarePaise\":240000")
+                .contains("\"convenienceFeePaise\":7200")
                 .contains("\"keyId\":\"rzp_test_stub\"")
                 .contains("\"payBy\"");
     }
@@ -74,10 +83,14 @@ class PayNowTest {
         book("A7X2", 5512);
         payNow("A7X2", 5512);
 
+        // Both numbers travel: what to charge, and how much of it is the ticket.
+        // payment-service hands money back later and must not have to know how a
+        // fare is built up to do it.
         assertThat(paymentService.requests()).singleElement().asString()
                 .contains("\"userId\":5512")
                 .contains("\"requestId\":\"A7X2\"")
-                .contains("\"amountPaise\":240000");
+                .contains("\"amountPaise\":247200")
+                .contains("\"refundablePaise\":240000");
     }
 
     @Test
@@ -88,7 +101,7 @@ class PayNowTest {
         ResponseEntity<String> res = payNow("B", 2);
 
         assertThat(res.getStatusCode()).isEqualTo(HttpStatus.OK);
-        assertThat(res.getBody()).as("full fare, as on IRCTC").contains("\"amountPaise\":240000");
+        assertThat(res.getBody()).as("full fare, as on IRCTC").contains("\"amountPaise\":247200");
     }
 
     @Test

@@ -197,6 +197,10 @@ services:
       RAZORPAY_KEY_ID: ${RAZORPAY_KEY_ID:-}
       RAZORPAY_KEY_SECRET: ${RAZORPAY_KEY_SECRET:-}
       RAZORPAY_WEBHOOK_SECRET: ${RAZORPAY_WEBHOOK_SECRET:-dev-only-webhook-secret-not-for-real-use}
+      # Overridable so the live gateway can be pointed at a fake that records what
+      # it was sent. Comparing that against a hand-written curl is the only way to
+      # find out why a gateway rejects a request it should accept.
+      RAZORPAY_API_URL: ${RAZORPAY_API_URL:-https://api.razorpay.com/v1}
       # Every cycle asks the gateway about each unpaid order. Against the stub that
       # is free; against Razorpay it is an API call, so slow it down when live.
       MIDDLEBERTH_RECONCILE_INTERVAL: ${RECONCILE_INTERVAL:-PT15S}

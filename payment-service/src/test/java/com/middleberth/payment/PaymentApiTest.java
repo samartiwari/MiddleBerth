@@ -216,7 +216,8 @@ class PaymentApiTest {
         HttpHeaders headers = new HttpHeaders();
         headers.setContentType(MediaType.APPLICATION_JSON);
         String body = """
-                {"userId":%d,"requestId":"%s","amountPaise":%d}""".formatted(userId, requestId, amountPaise);
+                {"userId":%d,"requestId":"%s","amountPaise":%d,"refundablePaise":%d}"""
+                .formatted(userId, requestId, amountPaise, amountPaise);
         ResponseEntity<String> res = http.postForEntity("/internal/orders", new HttpEntity<>(body, headers), String.class);
         assertThat(res.getStatusCode()).isEqualTo(HttpStatus.OK);
         return json.readTree(res.getBody());

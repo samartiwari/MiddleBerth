@@ -49,14 +49,24 @@ public class PayNowService {
             throw new NotPayableException("The hold expired at " + booking.getPayBy());
         }
 
-        long amount = fares.forClass(booking.getCoachClass());
-        PaymentOrder order = paymentClient.createOrder(userId, requestId, amount);
+        // Base fare is the ticket. The convenience fee on top is what pays the
+        // gateway's cut — taken on the way in and never returned — so that a
+        // cancellation can refund the whole fare without the company having to
+        // find the difference from somewhere else. IRCTC works the same way.
+        String coachClass = booking.getCoachClass();
+        long baseFare = fares.baseFare(coachClass);
+        long total = fares.totalCharge(coachClass);
+
+        // payment-service is told BOTH: what to charge, and how much of it is the
+        // ticket. It is the one that later hands money back, and it must not have
+        // to know anything about how a fare is built up to do that.
+        PaymentOrder order = paymentClient.createOrder(userId, requestId, total, baseFare);
 
         // Someone is paying now — the expiry job will give this hold extra time.
         // After the order, not before: if payment-service were down there would be
         // no payment in progress to protect.
         payments.markPaymentStarted(userId, requestId, Instant.now());
         return new PayNowResponse(order.orderId(), order.amountPaise(), order.currency(),
-                order.keyId(), booking.getPayBy());
+                order.keyId(), baseFare, total - baseFare, booking.getPayBy());
     }
 }

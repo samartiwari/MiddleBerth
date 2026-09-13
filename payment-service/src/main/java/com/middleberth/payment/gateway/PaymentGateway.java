@@ -24,14 +24,18 @@ public interface PaymentGateway {
     String publicKeyId();
 
     /**
-     * Refunds a captured payment in full, and returns the refund's id.
+     * Refunds amountPaise of a captured payment, and returns the refund's id.
+     *
+     * Not always the whole payment: a passenger who cancels gets the ticket price
+     * back but not the convenience fee, because the gateway already took its cut
+     * out of that and will not return it.
      *
      * MUST be safe to call twice for the same payment: if it was already refunded,
      * return that refund instead of paying out again. A crash between refunding and
      * recording it means this WILL be called twice sometimes, and paying a customer
      * back twice is still getting money wrong.
      */
-    String refundInFull(String paymentId, long amountPaise);
+    String refund(String paymentId, long amountPaise);
 
     /**
      * The captured payment on this order, if the gateway has one. The safety net

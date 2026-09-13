@@ -41,7 +41,8 @@ public class PaymentService {
 
         try {
             return response(paymentRepo.saveAndFlush(Payment.created(
-                    order.orderId(), req.userId(), req.requestId(), order.amountPaise(), order.currency())));
+                    order.orderId(), req.userId(), req.requestId(), order.amountPaise(),
+                    req.refundablePaise(), order.currency())));
         } catch (DataIntegrityViolationException raced) {
             // Two Pay Now clicks at the same instant both reached here. The other one
             // saved first — return its order. The gateway order this call created is
