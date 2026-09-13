@@ -42,6 +42,19 @@ class MailTest {
     @Autowired KafkaConnectionDetails kafka;
     @Autowired PurgeJob purgeJob;
 
+    /**
+     * Every test uses its OWN passenger, and looks only at that passenger's mail.
+     *
+     * They used to share 5512/A7X2, and that failed in CI roughly one run in ten.
+     * Wiping the table between tests is not enough on its own: the consumer keeps
+     * running, so a message published by the previous test can be handled just
+     * after the wipe. It then writes the "already sent" record for 5512/A7X2, and
+     * the next test's confirmation is silently skipped as a duplicate — one mail
+     * where two were expected, thirty seconds of waiting, and nothing in the log
+     * to say why.
+     *
+     * Separate ids make that impossible rather than unlikely.
+     */
     @BeforeEach
     void seed() {
         sentMailRepo.deleteAllInBatch();
@@ -53,7 +66,7 @@ class MailTest {
     void a_confirmed_ticket_becomes_one_mail() throws Exception {
         publish("5512|A7X2", Files.readString(Path.of("../contracts/booking-event.json")));
 
-        Mail mail = awaitMails(1).get(0);
+        Mail mail = awaitMailsTo("samar@example.invalid", 1).get(0);
         assertThat(mail.to()).as("the address on the event, not one we looked up")
                 .isEqualTo("samar@example.invalid");
         assertThat(mail.body()).contains("Samar Tiwari");
@@ -65,27 +78,29 @@ class MailTest {
 
     /** Messages arrive at least once — the outbox can hand the same note over twice. */
     @Test
-    void the_same_message_twice_is_still_one_mail() throws Exception {
-        String event = Files.readString(Path.of("../contracts/booking-event.json"));
-        publish("5512|A7X2", event);
-        publish("5512|A7X2", event);                                  // the duplicate
+    void the_same_message_twice_is_still_one_mail() {
+        String event = ticket(7001, "DUP");
+        publish("7001|DUP", event);
+        publish("7001|DUP", event);                                   // the duplicate
         // A third message on the SAME key, so it lands in the same partition and is
         // definitely handled after both copies. Without it the test could look at
         // the mailbox before the duplicate had even been read.
-        publish("5512|A7X2", cancelled(5512, "A7X2", "NOTHING_LEFT"));
+        publish("7001|DUP", cancelled(7001, "DUP", "NOTHING_LEFT"));
 
-        await(() -> mailsSaying("Booking cancelled").size() == 1, "the message behind the duplicate");
+        await(() -> mailsTo(7001, "Booking cancelled").size() == 1, "the message behind the duplicate");
 
-        assertThat(mailsSaying("Ticket confirmed")).as("the duplicate sent nothing").hasSize(1);
-        assertThat(sentMailRepo.count()).isEqualTo(2);
+        assertThat(mailsTo(7001, "Ticket confirmed")).as("the duplicate sent nothing").hasSize(1);
+        assertThat(sentMailRepo.countByUserId(7001L)).isEqualTo(2);
     }
 
     @Test
-    void a_cancellation_is_a_mail_of_its_own() throws Exception {
-        publish("5512|A7X2", Files.readString(Path.of("../contracts/booking-event.json")));
-        publish("5512|A7X2", cancelled(5512, "A7X2", "PAID_AFTER_DEADLINE"));
+    void a_cancellation_is_a_mail_of_its_own() {
+        publish("7002|CANCEL", ticket(7002, "CANCEL"));
+        publish("7002|CANCEL", cancelled(7002, "CANCEL", "PAID_AFTER_DEADLINE"));
 
-        List<Mail> mails = awaitMails(2);
+        List<Mail> mails = awaitMailsFor(7002, 2);
+
+        assertThat(mails.get(0).subject()).contains("Ticket confirmed");
         assertThat(mails.get(1).subject()).contains("Booking cancelled");
         assertThat(mails.get(1).body()).contains("on its way back");
     }
@@ -99,9 +114,10 @@ class MailTest {
         publish("999|NOBODY", withoutAddress(999, "NOBODY"));
         publish("999|NOBODY", cancelled(999, "NOBODY", "NOTHING_LEFT"));   // same key, so it is next
 
-        assertThat(awaitMails(1)).singleElement().satisfies(mail ->
+        assertThat(awaitMailsFor(999, 1)).singleElement().satisfies(mail ->
                 assertThat(mail.to()).isEqualTo("passenger999@example.invalid"));
-        assertThat(sentMailRepo.count()).as("nothing written down for the one with no address").isEqualTo(1);
+        assertThat(sentMailRepo.countByUserId(999L))
+                .as("nothing written down for the one with no address").isEqualTo(1);
     }
 
     /**
@@ -109,10 +125,10 @@ class MailTest {
      * that could duplicate it. Beyond that it is dead weight.
      */
     @Test
-    void records_older_than_kafkas_memory_are_deleted() throws Exception {
-        publish("5512|A7X2", Files.readString(Path.of("../contracts/booking-event.json")));
-        awaitMails(1);
-        assertThat(sentMailRepo.count()).isEqualTo(1);
+    void records_older_than_kafkas_memory_are_deleted() {
+        publish("7003|PURGE", ticket(7003, "PURGE"));
+        awaitMailsFor(7003, 1);
+        assertThat(sentMailRepo.countByUserId(7003L)).isEqualTo(1);
 
         int removed = purgeJob.purgeBefore(OffsetDateTime.now().plusDays(1));   // as if a week had passed
 
@@ -160,8 +176,17 @@ class MailTest {
         }
     }
 
-    private List<Mail> mailsSaying(String subject) {
-        return notifier.sent().stream().filter(m -> m.subject().contains(subject)).toList();
+    /** Only this passenger's mail — the address carries the user id. */
+    private List<Mail> mailsTo(long userId) {
+        return mailsTo("passenger" + userId + "@example.invalid");
+    }
+
+    private List<Mail> mailsTo(String address) {
+        return notifier.sent().stream().filter(m -> address.equals(m.to())).toList();
+    }
+
+    private List<Mail> mailsTo(long userId, String subject) {
+        return mailsTo(userId).stream().filter(m -> m.subject().contains(subject)).toList();
     }
 
     private void await(java.util.function.BooleanSupplier condition, String what) {
@@ -173,12 +198,21 @@ class MailTest {
         assertThat(condition.getAsBoolean()).as(what).isTrue();
     }
 
-    private List<Mail> awaitMails(int expected) {
+    /**
+     * Waits for this passenger's mail, and ignores everyone else's. A message left
+     * over from an earlier test can land in the mailbox at any moment; it is not
+     * this test's business and must not fail it.
+     */
+    private List<Mail> awaitMailsFor(long userId, int expected) {
+        return awaitMailsTo("passenger" + userId + "@example.invalid", expected);
+    }
+
+    private List<Mail> awaitMailsTo(String address, int expected) {
         long deadline = System.nanoTime() + Duration.ofSeconds(30).toNanos();
-        while (System.nanoTime() < deadline && notifier.sent().size() < expected) {
+        while (System.nanoTime() < deadline && mailsTo(address).size() < expected) {
             try { Thread.sleep(50); } catch (InterruptedException e) { Thread.currentThread().interrupt(); break; }
         }
-        assertThat(notifier.sent()).as("mails sent").hasSize(expected);
-        return notifier.sent();
+        assertThat(mailsTo(address)).as("mails to %s", address).hasSize(expected);
+        return mailsTo(address);
     }
 }
