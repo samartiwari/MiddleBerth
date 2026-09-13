@@ -37,6 +37,33 @@ else
     psql_booking() { docker compose exec -T booking-db psql -U middleberth -d booking -q "$@"; }
 fi
 
+# Refuse to measure the wrong thing, or to do real damage doing it.
+#
+# The comment at the top has always said "the payment gateway is the stub", and a
+# comment has never once stopped anybody. Two things can be badly wrong here:
+#
+#   live payments  Razorpay rate limits their own API, so the numbers would be
+#                  theirs and not ours.
+#   real mail      a few thousand tickets through a mailbox that allows 500 a day
+#                  is a load test aimed at a stranger's mail server. Most would
+#                  fail, retry, and fill the dead letter topic with noise.
+#
+# So ask the running services what they actually are, and stop if either is real.
+if [ "$MODE" != "k8s" ]; then
+    PAY_MODE=$(docker compose exec -T payment-service sh -c 'echo $MIDDLEBERTH_RAZORPAY_MODE' 2>/dev/null | tr -d '\r')
+    MAILS=$(docker compose exec -T notification-service sh -c 'echo $MAIL_MODE' 2>/dev/null | tr -d '\r')
+
+    if [ "$PAY_MODE" = "live" ] || [ "$MAILS" = "smtp" ]; then
+        echo "refusing to run: payments=${PAY_MODE:-unknown}, mail=${MAILS:-unknown}" >&2
+        echo >&2
+        echo "A load test must not reach a real payment gateway or a real mailbox." >&2
+        echo "In .env set RAZORPAY_MODE=stub and MAIL_MODE=log, then:" >&2
+        echo "    docker compose up -d payment-service notification-service" >&2
+        exit 1
+    fi
+    echo "== payments: $PAY_MODE, mail: $MAILS"
+fi
+
 echo "== berths available before the run"
 psql_booking -c "SELECT status, count(*) FROM seat WHERE travel_date = CURRENT_DATE + 1 GROUP BY status;"
 

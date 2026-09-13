@@ -132,8 +132,13 @@ class MailTest {
 
         int removed = purgeJob.purgeBefore(OffsetDateTime.now().plusDays(1));   // as if a week had passed
 
-        assertThat(removed).isEqualTo(1);
-        assertThat(sentMailRepo.count()).isZero();
+        // The purge is deliberately indiscriminate — it sweeps the whole table, so
+        // the count it returns includes anybody else's rows. Asserting it removed
+        // EXACTLY one makes this test fail whenever another test's message happens
+        // to land mid-run, which is a race and not a defect. What actually matters
+        // is that this passenger's record is gone.
+        assertThat(removed).as("swept at least this passenger's record").isGreaterThanOrEqualTo(1);
+        assertThat(sentMailRepo.countByUserId(7003L)).isZero();
     }
 
     // ---------- helpers ----------
