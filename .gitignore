@@ -11,8 +11,11 @@ build/
 # OS
 .DS_Store
 
-# Local env / secrets
+# Local env / secrets. The glob matters: a ".env.bak-1789299785" left by an
+# editor or a script is the same secrets in a file git does not ignore, and
+# "git add -A" will happily stage it.
 .env
+.env.*
 *.local
 
 # Personal notes — design reasoning and learning, not part of the codebase

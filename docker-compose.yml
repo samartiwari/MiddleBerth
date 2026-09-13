@@ -228,6 +228,13 @@ services:
       # log = write the mail to the log. Set MAIL_MODE=smtp and spring.mail.* to
       # actually send. A load test must never reach a mail server.
       MAIL_MODE: ${MAIL_MODE:-log}
+      # Only used when MAIL_MODE=smtp. Kept in .env, which is gitignored and 600 —
+      # a Gmail app password is a password, even though it is not THE password.
+      MAIL_HOST: ${MAIL_HOST:-smtp.gmail.com}
+      MAIL_PORT: ${MAIL_PORT:-587}
+      MAIL_USERNAME: ${MAIL_USERNAME:-}
+      MAIL_PASSWORD: ${MAIL_PASSWORD:-}
+      MAIL_FROM: ${MAIL_FROM:-tickets@middleberth.invalid}
     healthcheck:
       test: ["CMD-SHELL", "wget -qO- http://localhost:8084/actuator/health | grep -q UP"]
       interval: 10s
