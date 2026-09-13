@@ -55,6 +55,14 @@ spec:
             - name: REDIS_HOST
               valueFrom: {configMapKeyRef: {name: middleberth-config, key: REDIS_HOST}}
             - {name: PAYMENT_URL, value: "http://payment-service:8083"}
+            # NOT the compose values. The autoscaler runs up to 8 of these pods, and
+            # both numbers multiply by the pod count:
+            #   8 pods x 2 threads     = 16  -> about one per partition (15)
+            #   8 pods x 10 connections = 80 -> under booking-db's limit of 100
+            # Compose's 15 threads and 30 connections here would be 120 idle consumers
+            # and 240 connections, and Postgres would refuse the pods that came up last.
+            - {name: BOOKING_CONSUMER_THREADS, value: "2"}
+            - {name: DB_POOL_SIZE, value: "10"}
             # The JVM inside a container must be told what it may use, or it sizes
             # the heap from the whole machine and gets killed for going over.
             - {name: JAVA_TOOL_OPTIONS, value: "-XX:MaxRAMPercentage=70 -Dnetworkaddress.cache.ttl=5"}

@@ -46,7 +46,8 @@ public class BookingRequestsConfig {
     @Bean
     ConcurrentKafkaListenerContainerFactory<String, BookingCommand> bookingRequestsFactory(
             ConsumerFactory<?, ?> bootConsumerFactory, ObjectMapper objectMapper,
-            KafkaTemplate<?, ?> kafkaTemplate, BookingRetrySettings retry) {
+            KafkaTemplate<?, ?> kafkaTemplate, BookingRetrySettings retry,
+            BookingConsumerSettings consumer) {
 
         Map<String, Object> props = new HashMap<>(bootConsumerFactory.getConfigurationProperties());
         props.remove(ConsumerConfig.KEY_DESERIALIZER_CLASS_CONFIG);
@@ -68,6 +69,10 @@ public class BookingRequestsConfig {
                 new ConcurrentKafkaListenerContainerFactory<>();
         factory.setConsumerFactory(consumers);
         factory.setCommonErrorHandler(new DefaultErrorHandler(toDeadLetters, backOff));
+        // At most one thread per partition this instance owns — see BookingConsumerSettings.
+        // Order is still kept where it matters: one partition is only ever read by one
+        // thread, so one train, date and class is still handled strictly in arrival order.
+        factory.setConcurrency(consumer.concurrency());
         return factory;
     }
 }
