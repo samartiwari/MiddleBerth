@@ -14,8 +14,14 @@ log_format timing '$time_iso8601 $request_method $uri $status '
 # Reused connections to the gateway, enough for every request in flight: past this
 # number nginx opens and closes extra connections, each holding a local port for a
 # minute, and under load it runs out of ports and answers 502.
+#
+# `resolve` looks the gateway up again every 5 seconds. Without it a recreated
+# gateway container comes back at a new address, and nginx keeps dialling the old
+# one and answers 502 until nginx is restarted too.
 upstream gateway {
-    server gateway:8000;
+    zone gateway 64k;
+    resolver 127.0.0.11 valid=5s ipv6=off;
+    server gateway:8000 resolve;
     keepalive 1024;
     keepalive_requests 10000;
     keepalive_timeout 60s;
