@@ -28,6 +28,19 @@ say() { printf '\n== %s\n' "$1"; }
 EMAIL="smoke-$(date +%s)@middleberth.invalid"
 PASSWORD="smoke test password"
 
+say "the docs page, and the descriptions it reads through the gateway"
+code=$(curl -s -o /dev/null -w '%{http_code}' "$BASE/swagger-ui.html")
+case "$code" in 3*) ;; *) echo "swagger-ui.html: expected a redirect, got $code"; exit 1 ;; esac
+curl -fsS "$BASE/v3/api-docs/booking" | grep -q '/api/bookings' || { echo "booking docs missing"; exit 1; }
+curl -fsS "$BASE/v3/api-docs/search" | grep -q '/api/trains' || { echo "search docs missing"; exit 1; }
+if curl -fsS "$BASE/v3/api-docs/payment" | grep -q 'internal'; then echo "payment docs show /internal"; exit 1; fi
+# "Try it out" posts from the API's own address. An empty body fails validation, so
+# this is 400 when the page is allowed, and 403 when the gateway takes it for another site.
+code=$(curl -s -o /dev/null -w '%{http_code}' -X POST "$BASE/auth/login" \
+       -H "Origin: $BASE" -H 'Content-Type: application/json' -d '{}')
+[ "$code" = "400" ] || { echo "a POST from the docs page got $code: is $BASE in CORS_ALLOWED_ORIGINS?"; exit 1; }
+echo "ok"
+
 say "sign up $EMAIL"
 TOKEN=$(curl -fsS -X POST "$BASE/auth/signup" -H 'Content-Type: application/json' \
         -d "{\"email\":\"$EMAIL\",\"password\":\"$PASSWORD\"}" \

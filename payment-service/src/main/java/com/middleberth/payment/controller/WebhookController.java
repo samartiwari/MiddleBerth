@@ -2,6 +2,8 @@ package com.middleberth.payment.controller;
 
 import com.middleberth.payment.service.WebhookOutcome;
 import com.middleberth.payment.service.WebhookService;
+import io.swagger.v3.oas.annotations.Operation;
+import io.swagger.v3.oas.annotations.tags.Tag;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
@@ -19,6 +21,7 @@ import org.springframework.web.bind.annotation.RestController;
  */
 @RestController
 @RequiredArgsConstructor
+@Tag(name = "Razorpay webhook", description = "Called by Razorpay, not by people.")
 public class WebhookController {
 
     private final WebhookService webhookService;
@@ -32,6 +35,9 @@ public class WebhookController {
      * forged or unknown one is answered so that it stops.
      */
     @PostMapping("/webhooks/razorpay")
+    @Operation(summary = "Razorpay reports a payment",
+            description = "Trusted only with a valid X-Razorpay-Signature over the exact body. "
+                    + "Without one it answers 400 REJECTED, so trying it here shows that refusal.")
     public ResponseEntity<String> razorpay(@RequestBody String rawBody,
                                            @RequestHeader(value = "X-Razorpay-Signature", required = false) String signature) {
         WebhookOutcome outcome = webhookService.handle(rawBody, signature);

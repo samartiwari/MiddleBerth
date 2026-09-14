@@ -4,6 +4,8 @@ import com.middleberth.gateway.service.AuthService;
 import com.middleberth.gateway.dto.Credentials;
 import com.middleberth.gateway.dto.TokenResponse;
 import com.middleberth.gateway.service.Tokens;
+import io.swagger.v3.oas.annotations.Operation;
+import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.HttpStatus;
@@ -23,6 +25,7 @@ import reactor.core.publisher.Mono;
  */
 @RestController
 @RequiredArgsConstructor
+@Tag(name = "Accounts", description = "Get a token for the booking and passenger endpoints.")
 public class AuthController {
 
     private final AuthService auth;
@@ -30,12 +33,16 @@ public class AuthController {
 
     @PostMapping("/auth/signup")
     @ResponseStatus(HttpStatus.CREATED)
+    @Operation(summary = "Create an account and get a token",
+            description = "Any email, and a password of 8 to 100 characters. The token lasts an hour.")
     public Mono<TokenResponse> signUp(@Valid @RequestBody Credentials credentials,
                                       ServerWebExchange exchange) {
         return auth.signUp(credentials, callerIp(exchange)).map(tokens::forUser);
     }
 
     @PostMapping("/auth/login")
+    @Operation(summary = "Log in and get a token",
+            description = "Five wrong passwords lock the account for 15 minutes.")
     public Mono<TokenResponse> logIn(@Valid @RequestBody Credentials credentials) {
         return auth.logIn(credentials).map(tokens::forUser);
     }

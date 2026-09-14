@@ -12,6 +12,8 @@ import com.middleberth.booking.service.BookingCancellation;
 import com.middleberth.booking.service.CancelOutcome;
 import com.middleberth.booking.service.BookingService;
 import com.middleberth.booking.service.PayNowService;
+import io.swagger.v3.oas.annotations.Operation;
+import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.HttpStatus;
@@ -30,6 +32,7 @@ import java.util.concurrent.CompletableFuture;
 @RestController
 @RequestMapping("/api/bookings")
 @RequiredArgsConstructor
+@Tag(name = "Bookings", description = "Ask for a berth, poll for the answer, pay, cancel.")
 public class BookingController {
 
     public static final String USER_ID = "X-User-Id";
@@ -49,6 +52,11 @@ public class BookingController {
      */
     @PostMapping
     @ResponseStatus(HttpStatus.ACCEPTED)
+    @Operation(summary = "Ask for a berth",
+            description = "Answers 202 at once. A booking thread decides behind Kafka, so poll "
+                    + "GET /api/bookings/{requestId} for the answer. requestId is yours to make up, and "
+                    + "sending the same one again is safe. Only a date on sale can be booked: check "
+                    + "availability first.")
     public CompletableFuture<BookingAccepted> book(@RequestHeader(USER_ID) Long userId,
                                                    @Valid @RequestBody BookingRequest request) {
         // 404 for a train that does not exist, 409 for a date that is not open and
@@ -78,6 +86,10 @@ public class BookingController {
      * gateway — so you can only ever see your own.
      */
     @GetMapping("/{requestId}")
+    @Operation(summary = "Poll for the answer",
+            description = "PENDING, with retryAfterMs saying when to ask again, until a booking thread "
+                    + "decides. Then HELD or WAITLIST_HELD (pay before payBy), CONFIRMED, WAITLISTED, "
+                    + "REGRETTED, EXPIRED or CANCELLED. Only your own bookings.")
     public BookingStatusResponse status(@RequestHeader(USER_ID) Long userId,
                                         @PathVariable String requestId) {
         var poll = bookingService.poll(userId, requestId);
@@ -90,10 +102,14 @@ public class BookingController {
      * Give the ticket up.
      *
      * The berth does not go back on sale — it goes to the next paid waitlister,
-     * inside one transaction, exactly as when a hold expires. Money that was paid
-     * is refunded in full; this project has no cancellation fee.
+     * inside one transaction, exactly as when a hold expires. The fare that was paid
+     * is refunded; the 3% convenience fee is not, because it is what covered the
+     * payment gateway's cut.
      */
     @PostMapping("/{requestId}/cancel")
+    @Operation(summary = "Give the booking up",
+            description = "The berth goes straight to the next paid waitlister. A paid fare is refunded; "
+                    + "the 3% fee is not.")
     public CancelledResponse cancel(@RequestHeader(USER_ID) Long userId,
                                     @PathVariable String requestId) {
         CancelOutcome outcome = cancellation.cancel(userId, requestId);
@@ -108,6 +124,9 @@ public class BookingController {
      * payment itself happens on Razorpay's page; we hear about it by webhook.
      */
     @PostMapping("/{requestId}/pay")
+    @Operation(summary = "Pay Now: get a Razorpay order",
+            description = "Returns what Razorpay's checkout needs. The payment happens on Razorpay's page; "
+                    + "the server hears about it by webhook, or by asking Razorpay if the webhook never comes.")
     public PayNowResponse pay(@RequestHeader(USER_ID) Long userId,
                               @PathVariable String requestId) {
         return payNowService.payNow(userId, requestId);

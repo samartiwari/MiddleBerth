@@ -16,6 +16,9 @@ book a real berth, pay with a Razorpay test card, and watch every API call the p
 `api.middleberth.samartiwari.me`, on a small 2 vCPU server for trying it out, which is not
 where the numbers below come from.
 
+**Try the API directly:** [Swagger](https://api.middleberth.samartiwari.me/swagger-ui.html).
+Sign up under `gateway-auth`, copy the token, switch to `booking` and press Authorize.
+
 ---
 
 ## The numbers

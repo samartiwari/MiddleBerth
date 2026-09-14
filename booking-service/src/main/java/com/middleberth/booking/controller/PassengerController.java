@@ -3,6 +3,8 @@ package com.middleberth.booking.controller;
 import com.middleberth.booking.dto.PassengerDetails;
 import com.middleberth.booking.dto.PassengerResponse;
 import com.middleberth.booking.service.PassengerService;
+import io.swagger.v3.oas.annotations.Operation;
+import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.HttpStatus;
@@ -22,17 +24,20 @@ import java.util.List;
 @RestController
 @RequestMapping("/api/passengers")
 @RequiredArgsConstructor
+@Tag(name = "Passengers", description = "Your saved passengers.")
 public class PassengerController {
 
     private final PassengerService passengers;
 
     @GetMapping
+    @Operation(summary = "List your saved passengers")
     public List<PassengerResponse> list(@RequestHeader(BookingController.USER_ID) Long userId) {
         return passengers.listSaved(userId).stream().map(PassengerResponse::of).toList();
     }
 
     @PostMapping
     @ResponseStatus(HttpStatus.CREATED)
+    @Operation(summary = "Save a passenger")
     public PassengerResponse add(@RequestHeader(BookingController.USER_ID) Long userId,
                                  @Valid @RequestBody PassengerDetails details) {
         return PassengerResponse.of(passengers.add(userId, details));
@@ -40,6 +45,7 @@ public class PassengerController {
 
     @DeleteMapping("/{id}")
     @ResponseStatus(HttpStatus.NO_CONTENT)
+    @Operation(summary = "Remove a saved passenger")
     public void remove(@RequestHeader(BookingController.USER_ID) Long userId,
                        @PathVariable Long id) {
         passengers.remove(userId, id);

@@ -6,6 +6,7 @@ import java.util.List;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
+import org.springframework.http.HttpMethod;
 import org.springframework.security.config.Customizer;
 import org.springframework.security.config.annotation.web.reactive.EnableWebFluxSecurity;
 import org.springframework.security.config.web.server.ServerHttpSecurity;
@@ -49,6 +50,11 @@ public class SecurityConfig {
                         .pathMatchers("/api/trains/**").permitAll()
                         .pathMatchers("/webhooks/razorpay").permitAll()   // trusted by its signature, not a token
                         .pathMatchers("/actuator/health/**").permitAll()
+                        // The Swagger page and the API descriptions it reads. Public because
+                        // they describe the API rather than call it, and GET only. "Try it out"
+                        // sends real requests to the real paths, which still meet every rule here.
+                        .pathMatchers(HttpMethod.GET, "/swagger-ui.html", "/swagger-ui/**",
+                                "/v3/api-docs", "/v3/api-docs/**").permitAll()
                         .pathMatchers("/api/bookings/**").authenticated()
                         .pathMatchers("/api/passengers/**").authenticated()
                         .anyExchange().denyAll())
@@ -72,7 +78,8 @@ public class SecurityConfig {
             @Value("${middleberth.cors.allowed-origins:}") List<String> allowedOrigins) {
         CorsConfiguration cors = new CorsConfiguration();
         cors.setAllowedOrigins(allowedOrigins.stream().map(String::trim).filter(o -> !o.isEmpty()).toList());
-        cors.setAllowedMethods(List.of("GET", "POST"));
+        // DELETE removes a saved passenger.
+        cors.setAllowedMethods(List.of("GET", "POST", "DELETE"));
         cors.setAllowedHeaders(List.of("Authorization", "Content-Type"));
         // The browser may reuse the permission for an hour instead of asking before every call.
         cors.setMaxAge(Duration.ofHours(1));

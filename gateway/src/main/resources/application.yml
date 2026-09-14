@@ -148,6 +148,56 @@ spring:
                 - Path=/webhooks/razorpay
                 - Method=POST
 
+            # What each service says about its own endpoints, for the Swagger page.
+            # Public and not rate limited: a few kilobytes, built once and kept, and
+            # the limiter counts per user in a token, which someone reading the docs
+            # does not have yet. GET and this exact path only, so nothing else on the
+            # service can be reached this way.
+            - id: booking-docs
+              uri: ${middleberth.booking-url}
+              predicates:
+                - Path=/v3/api-docs/booking
+                - Method=GET
+              filters:
+                - SetPath=/v3/api-docs
+            - id: search-docs
+              uri: ${middleberth.search-url}
+              predicates:
+                - Path=/v3/api-docs/search
+                - Method=GET
+              filters:
+                - SetPath=/v3/api-docs
+            - id: payment-docs
+              uri: ${middleberth.payment-url}
+              predicates:
+                - Path=/v3/api-docs/payment
+                - Method=GET
+              filters:
+                - SetPath=/v3/api-docs
+
+# The Swagger page at /swagger-ui.html: one page for the whole API.
+springdoc:
+  # The gateway's own endpoints worth describing are signing up and logging in.
+  paths-to-match: /auth/**
+  swagger-ui:
+    # Each service describes itself, and the page fetches those descriptions through
+    # the docs routes above, so it lists what a browser can reach through this
+    # gateway and nothing else.
+    urls:
+      - name: gateway-auth
+        url: /v3/api-docs
+      - name: search
+        url: /v3/api-docs/search
+      - name: booking
+        url: /v3/api-docs/booking
+      - name: payment-webhook
+        url: /v3/api-docs/payment
+    urls-primary-name: gateway-auth
+    # A token pasted into Authorize survives reloading the page and switching
+    # between the parts above.
+    persist-authorization: true
+    disable-swagger-default-url: true
+
 management:
   endpoints:
     web:

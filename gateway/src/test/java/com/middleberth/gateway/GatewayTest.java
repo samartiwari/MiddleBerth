@@ -1,6 +1,7 @@
 package com.middleberth.gateway;
 
 import com.middleberth.gateway.dto.TokenResponse;
+import org.hamcrest.Matchers;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -240,6 +241,91 @@ class GatewayTest {
     @Test
     void the_allowed_page_can_read_the_answers() {
         web.get().uri(GATEWAY + "/api/trains").header("Origin", PAGE)
+           .exchange()
+           .expectStatus().isOk()
+           .expectHeader().valueEquals("Access-Control-Allow-Origin", PAGE);
+    }
+
+    // ---------- the docs page ----------
+
+    /**
+     * One Swagger page for the whole API, served by the gateway. Public, because it
+     * describes the API rather than calls it; "Try it out" sends real requests to
+     * the real paths, and those still meet every rule above.
+     */
+    @Test
+    void the_docs_page_opens_without_a_token() {
+        String location = web.get().uri("/swagger-ui.html")
+                .exchange().expectStatus().is3xxRedirection()
+                .returnResult(Void.class).getResponseHeaders().getLocation().toString();
+
+        // Relative, so behind nginx's https the browser is never sent to plain http.
+        assertThat(location).startsWith("/");
+
+        web.get().uri(location).exchange()
+           .expectStatus().isOk()
+           .expectBody(String.class).value(page -> assertThat(page).contains("swagger-ui"));
+        web.get().uri(location.replace("index.html", "swagger-initializer.js"))
+           .exchange().expectStatus().isOk();
+    }
+
+    @Test
+    void the_docs_page_lists_every_part_of_the_api() {
+        web.get().uri("/v3/api-docs/swagger-config")
+           .exchange().expectStatus().isOk()
+           .expectBody()
+           .jsonPath("$.urls[*].url").value(Matchers.containsInAnyOrder(
+                   "/v3/api-docs", "/v3/api-docs/search", "/v3/api-docs/booking", "/v3/api-docs/payment"));
+    }
+
+    /**
+     * Each service describes itself, and the gateway fetches that through a route
+     * of its own, the same way a booking is forwarded: no token needed, and no user
+     * id sent on.
+     */
+    @Test
+    void each_services_description_comes_through_the_gateway_without_a_token() {
+        for (var service : Map.of("booking", BOOKING, "search", SEARCH, "payment", PAYMENT).entrySet()) {
+            web.get().uri("/v3/api-docs/" + service.getKey()).exchange().expectStatus().isOk();
+
+            assertThat(service.getValue().seen()).as(service.getKey()).singleElement().satisfies(seen -> {
+                assertThat(seen.path()).isEqualTo("/v3/api-docs");
+                assertThat(seen.userIdHeader()).isNull();
+            });
+        }
+    }
+
+    /** Reading only: nothing can be sent on to a service through the docs routes. */
+    @Test
+    void the_descriptions_can_only_be_read() {
+        web.post().uri("/v3/api-docs/booking").contentType(APPLICATION_JSON).bodyValue("{}")
+           .exchange().expectStatus().is4xxClientError();
+
+        assertThat(BOOKING.seen()).isEmpty();
+    }
+
+    @Test
+    void the_gateway_describes_signing_up_and_logging_in_and_points_try_it_out_at_itself() {
+        web.get().uri("/v3/api-docs").exchange()
+           .expectStatus().isOk()
+           .expectBody()
+           .jsonPath("$.paths['/auth/signup']").exists()
+           .jsonPath("$.paths['/auth/login']").exists()
+           .jsonPath("$.paths['/actuator/health']").doesNotExist()
+           .jsonPath("$.servers[0].url").isEqualTo("/");
+    }
+
+    /**
+     * Removing a saved passenger is a DELETE. The docs page is another address as
+     * far as the gateway can tell (see deploy/env.vm.example), so without DELETE in
+     * the allowed methods the browser would block it.
+     */
+    @Test
+    void an_allowed_page_may_remove_a_saved_passenger() {
+        web.options().uri(GATEWAY + "/api/passengers/7")
+           .header("Origin", PAGE)
+           .header("Access-Control-Request-Method", "DELETE")
+           .header("Access-Control-Request-Headers", "authorization")
            .exchange()
            .expectStatus().isOk()
            .expectHeader().valueEquals("Access-Control-Allow-Origin", PAGE);

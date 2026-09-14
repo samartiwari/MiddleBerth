@@ -168,6 +168,16 @@ class AuthTest {
            .exchange().expectStatus().isNotFound();
     }
 
+    /** And the docs page does not offer an endpoint that is not there. */
+    @Test
+    void the_docs_never_offer_the_demo_token_endpoint() {
+        web.get().uri("/v3/api-docs").exchange()
+           .expectStatus().isOk()
+           .expectBody()
+           .jsonPath("$.paths['/auth/login']").exists()
+           .jsonPath("$.paths['/auth/token']").doesNotExist();
+    }
+
     // ---------- helpers ----------
 
     private void signUp(String email, String password) {

@@ -15,8 +15,17 @@
 	<description>MiddleBerth payment service — orders, webhooks, refunds</description>
 	<properties>
 		<java.version>21</java.version>
+		<!-- springdoc 2.x is the line for Spring Boot 3; 3.x is for Boot 4. -->
+		<springdoc.version>2.9.1</springdoc.version>
 	</properties>
 	<dependencies>
+		<!-- Describes the public endpoints as JSON at /v3/api-docs. No page of its own:
+		     the gateway shows one Swagger page for the whole API. -->
+		<dependency>
+			<groupId>org.springdoc</groupId>
+			<artifactId>springdoc-openapi-starter-webmvc-api</artifactId>
+			<version>${springdoc.version}</version>
+		</dependency>
 		<dependency>
 			<groupId>org.springframework.boot</groupId>
 			<artifactId>spring-boot-starter-web</artifactId>

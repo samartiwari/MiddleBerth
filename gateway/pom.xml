@@ -17,8 +17,17 @@
 		<java.version>21</java.version>
 		<!-- The Spring Cloud release for Boot 3.5. The 2025.1 line is for Boot 4. -->
 		<spring-cloud.version>2025.0.3</spring-cloud.version>
+		<!-- springdoc 2.x is the line for Spring Boot 3; 3.x is for Boot 4. -->
+		<springdoc.version>2.9.1</springdoc.version>
 	</properties>
 	<dependencies>
+		<!-- The Swagger page for the whole API. The WebFlux flavour: the webmvc one
+		     brings Spring MVC, and the gateway will not start with that on the classpath. -->
+		<dependency>
+			<groupId>org.springdoc</groupId>
+			<artifactId>springdoc-openapi-starter-webflux-ui</artifactId>
+			<version>${springdoc.version}</version>
+		</dependency>
 		<!-- Reactive, runs on Netty. A handful of threads handle thousands of
 		     connections, which suits a service whose whole job is fast checks. -->
 		<dependency>
