@@ -6,15 +6,21 @@ import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.reactive.AutoConfigureWebTestClient;
 import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.boot.test.context.TestConfiguration;
+import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Import;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.HttpStatusCode;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
 import org.springframework.test.web.reactive.server.WebTestClient;
+import org.springframework.web.server.session.DefaultWebSessionManager;
+import org.springframework.web.server.session.WebSessionManager;
+import reactor.core.publisher.Mono;
 
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.stream.IntStream;
 
@@ -28,7 +34,7 @@ import static org.springframework.http.MediaType.APPLICATION_JSON;
  * what the services behind the gateway would actually see — in particular the
  * X-User-Id header they trust.
  */
-@Import(TestcontainersConfiguration.class)
+@Import({TestcontainersConfiguration.class, GatewayTest.SessionWatch.class})
 // demo-tokens: these tests are about routing, headers and limits, not about
 // logging in. Signing up two dozen accounts with BCrypt to test a route would
 // only make them slow. Logging in for real is AuthTest's job.
@@ -185,6 +191,52 @@ class GatewayTest {
 
         assertThat(post(alice)).as("alice is over her limit").isEqualTo(HttpStatus.TOO_MANY_REQUESTS);
         assertThat(post(bob).is2xxSuccessful()).as("bob, same IP, is unaffected").isTrue();
+    }
+
+    // ---------- no sessions ----------
+
+    /**
+     * Every request carries its own token, so the gateway never needs a session —
+     * and asking for one is not free. Creating one makes a random id on another
+     * thread pool and hops back, and in the middle of a booking rush the gateway's
+     * request threads were caught queueing at that handover, for sessions that were
+     * thrown away unused. Spring Security asks by default, to remember who is logged
+     * in and which page to go back to after logging in. Neither exists here.
+     */
+    @Test
+    void no_request_ever_asks_for_a_session() {
+        SessionWatch.ASKED.set(0);
+
+        String token = tokenFor(newUser());                                    // log in
+        post(token);                                                           // book
+        web.get().uri("/api/bookings/A7X2").headers(h -> h.setBearerAuth(token))
+           .exchange().expectStatus().isOk();                                  // poll
+        web.get().uri("/api/trains").exchange().expectStatus().isOk();         // search
+        web.post().uri("/api/bookings").contentType(APPLICATION_JSON).bodyValue("{}")
+           .exchange().expectStatus().isUnauthorized();                        // no token
+
+        assertThat(SessionWatch.ASKED).as("times anything asked for a session").hasValue(0);
+    }
+
+    /**
+     * The real session manager, counting every time something actually asks it for
+     * a session. Spring Boot's own steps aside for a bean with this name.
+     */
+    @TestConfiguration
+    static class SessionWatch {
+
+        static final AtomicInteger ASKED = new AtomicInteger();
+
+        @Bean("webSessionManager")
+        WebSessionManager webSessionManager() {
+            DefaultWebSessionManager real = new DefaultWebSessionManager();
+            // Counted inside defer, so only when something subscribes: a session
+            // that is looked up but never used costs nothing and is not counted.
+            return exchange -> Mono.defer(() -> {
+                ASKED.incrementAndGet();
+                return real.getSession(exchange);
+            });
+        }
     }
 
     // ---------- payments (5c) ----------
