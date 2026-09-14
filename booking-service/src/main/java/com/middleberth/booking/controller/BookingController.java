@@ -57,6 +57,11 @@ public class BookingController {
         // traffic in a tatkal rush.
         bookingService.assertBookable(request.trainNumber(), request.travelDate(), request.coachClass());
 
+        // Noted before it is queued, so the polls that follow are answered from
+        // Redis rather than from the database the booking threads are using, until
+        // a booking thread writes the answer over the note.
+        bookingService.markPending(userId, request.requestId());
+
         // 202 only once the broker has really taken it — but the thread is not
         // held while that happens. Returning the future lets Spring release the
         // thread and write the reply when the acknowledgement arrives.
@@ -65,7 +70,8 @@ public class BookingController {
     }
 
     /**
-     * What the page polls. PENDING until the consumer has got to it.
+     * What the page polls. PENDING until the consumer has got to it, with how long
+     * to leave it before asking again.
      *
      * Used to take userId as a query parameter, which let anyone read anyone's
      * booking by changing the number. Now it is the caller's own id, from the
@@ -74,9 +80,10 @@ public class BookingController {
     @GetMapping("/{requestId}")
     public BookingStatusResponse status(@RequestHeader(USER_ID) Long userId,
                                         @PathVariable String requestId) {
-        return bookingService.outcomeOf(userId, requestId)
-                .map(BookingStatusResponse::of)
-                .orElseGet(BookingStatusResponse::pending);
+        var poll = bookingService.poll(userId, requestId);
+        return poll.result() != null
+                ? BookingStatusResponse.of(poll.result())
+                : BookingStatusResponse.pending(poll.retryAfter());
     }
 
     /**

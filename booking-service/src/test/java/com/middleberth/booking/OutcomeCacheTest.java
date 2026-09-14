@@ -9,6 +9,7 @@ import com.middleberth.booking.repository.BookingRepository;
 import com.middleberth.booking.repository.SeatRepository;
 import com.middleberth.booking.repository.TrainRepository;
 import com.middleberth.booking.service.BookingService;
+import com.middleberth.booking.service.Poll;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -18,6 +19,8 @@ import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.transaction.support.TransactionTemplate;
 
+import java.time.Duration;
+import java.time.Instant;
 import java.time.LocalDate;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -130,5 +133,69 @@ class OutcomeCacheTest {
         assertThat(first.status()).isEqualTo(BookingStatus.HELD);
         assertThat(second.status()).as("only one berth, so the second waits")
                 .isEqualTo(BookingStatus.WAITLIST_HELD);
+    }
+
+    // ---------- still waiting ----------
+    //
+    // Past the rate the booking threads could keep up with, a page asking about a
+    // booking nobody had decided yet missed Redis every time and asked Postgres,
+    // which had nothing to say either: thousands of pointless queries a second, on
+    // the database the booking threads were claiming berths from.
+
+    private static final String KEY = "middleberth:outcome:5512|A7X2";
+
+    /** The answer is in Redis the moment it exists, before any page has asked for it. */
+    @Test
+    void the_booking_thread_leaves_its_answer_for_the_page() {
+        bookingService.book(new BookingCommand("A7X2", 5512L, "12951", DATE, "3A", TestPassenger.SOMEONE));
+
+        assertThat(redis.opsForValue().get(KEY))
+                .as("written by the booking itself, not by a poll").contains("HELD");
+    }
+
+    /**
+     * Proof that a recent "still waiting" never reaches the database: Postgres HAS
+     * an answer, and the page is still told to wait, because Redis says the request
+     * was accepted a moment ago and the booking thread writes the answer there.
+     */
+    @Test
+    void a_booking_accepted_a_moment_ago_is_answered_from_redis_alone() {
+        bookingService.book(new BookingCommand("A7X2", 5512L, "12951", DATE, "3A", TestPassenger.SOMEONE));
+        redis.delete(KEY);                                        // as if the answer's write had been lost
+        bookingService.markPending(5512L, "A7X2", Instant.now());
+
+        Poll poll = bookingService.poll(5512L, "A7X2");
+
+        assertThat(poll.result()).as("the row in Postgres was never read").isNull();
+        assertThat(poll.retryAfter()).as("just accepted, so ask again soon").isEqualTo(Duration.ofMillis(500));
+    }
+
+    /** But not for ever. Once "still waiting" is older than expected, Postgres is asked too. */
+    @Test
+    void a_booking_waiting_longer_than_expected_is_looked_up_in_the_database() {
+        bookingService.book(new BookingCommand("A7X2", 5512L, "12951", DATE, "3A", TestPassenger.SOMEONE));
+        redis.delete(KEY);
+        bookingService.markPending(5512L, "A7X2", Instant.now().minus(Duration.ofMinutes(1)));
+
+        Poll poll = bookingService.poll(5512L, "A7X2");
+
+        assertThat(poll.result()).as("found in Postgres").isNotNull();
+        assertThat(poll.result().status()).isEqualTo(BookingStatus.HELD);
+    }
+
+    /**
+     * Marking a request as waiting must never hide an answer already there. The
+     * booking thread can finish before the front door gets round to the mark.
+     */
+    @Test
+    void marking_a_booking_as_waiting_never_hides_its_answer() {
+        bookingService.book(new BookingCommand("A7X2", 5512L, "12951", DATE, "3A", TestPassenger.SOMEONE));
+        bookingService.markPending(5512L, "A7X2", Instant.now());
+        bookingRepo.deleteAllInBatch();                           // the answer is now only in Redis
+
+        var answer = bookingService.outcomeOf(5512L, "A7X2");
+
+        assertThat(answer).as("still the answer, not 'waiting'").isPresent();
+        assertThat(answer.get().status()).isEqualTo(BookingStatus.HELD);
     }
 }

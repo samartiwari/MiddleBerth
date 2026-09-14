@@ -107,6 +107,18 @@ class BookingApiTest {
         assertThat(outcome).contains("\"status\":\"HELD\"").contains("\"seat\":\"B2-");
     }
 
+    /**
+     * A page still waiting is told how long to leave it before asking again, so
+     * pages stop asking twice a second however long they have already waited.
+     * Nothing is known about this request, so there is no age to go on: a second.
+     */
+    @Test
+    void a_page_still_waiting_is_told_when_to_ask_again() {
+        String body = poll("NEVER-QUEUED", 5512L).getBody();
+
+        assertThat(body).contains("\"status\":\"PENDING\"").contains("\"retryAfterMs\":1000");
+    }
+
     @Test
     void unknown_train_is_rejected_at_the_door() {
         ResponseEntity<String> res = post("A7X3", 5512L, "99999");

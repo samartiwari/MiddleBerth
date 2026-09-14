@@ -8,7 +8,7 @@ import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.stereotype.Component;
 
 import java.time.Duration;
-import java.util.Optional;
+import java.time.Instant;
 
 /**
  * What a waiting page polls for, kept out of the database.
@@ -25,6 +25,12 @@ import java.util.Optional;
  * The cost is that an answer can be a few seconds out of date, on a page that
  * polls every second anyway.
  *
+ * It also knows which bookings are still waiting. The front door notes a request
+ * as pending when it queues it, and the booking thread overwrites that note with
+ * the answer the moment it has one. Before that, a poll about a booking nobody had
+ * decided yet found nothing here and asked Postgres, which had nothing to say
+ * either — thousands of times a second once the booking threads fell behind.
+ *
  * Redis being down is not an error here. A miss reads Postgres, which is where
  * the truth was all along.
  */
@@ -33,18 +39,43 @@ import java.util.Optional;
 @Slf4j
 public class OutcomeCache {
 
+    /** What Redis knows about one booking. */
+    public sealed interface Lookup permits Answer, Pending, Unknown {
+    }
+
+    /** Decided, and this is what they got. */
+    public record Answer(BookingResult result) implements Lookup {
+    }
+
+    /** Accepted at the door at this moment, and not decided yet. */
+    public record Pending(Instant since) implements Lookup {
+    }
+
+    /** Nothing here: never queued, expired, or Redis could not be reached. */
+    public record Unknown() implements Lookup {
+    }
+
+    // Not JSON, on purpose. Spring's ObjectMapper ignores fields it does not know,
+    // so a JSON "pending" note would read back as a booking with no status at all.
+    private static final String PENDING = "pending:";
+
     private final StringRedisTemplate redis;
     private final ObjectMapper json;
     private final CacheSettings settings;
 
-    public Optional<BookingResult> get(Long userId, String requestId) {
+    public Lookup lookup(Long userId, String requestId) {
         try {
             String cached = redis.opsForValue().get(key(userId, requestId));
-            return cached == null ? Optional.empty()
-                    : Optional.of(json.readValue(cached, BookingResult.class));
+            if (cached == null) {
+                return new Unknown();
+            }
+            if (cached.startsWith(PENDING)) {
+                return new Pending(Instant.ofEpochMilli(Long.parseLong(cached.substring(PENDING.length()))));
+            }
+            return new Answer(json.readValue(cached, BookingResult.class));
         } catch (Exception e) {
             log.debug("Outcome cache unavailable, falling back to the database: {}", e.getMessage());
-            return Optional.empty();
+            return new Unknown();
         }
     }
 
@@ -63,6 +94,23 @@ public class OutcomeCache {
      */
     public void putRegret(Long userId, String requestId) {
         write(userId, requestId, BookingResult.regretted(), settings.regretTtl());
+    }
+
+    /**
+     * Notes that a request was accepted at the door and is waiting for a booking
+     * thread.
+     *
+     * Only if nothing is there already. The booking thread can finish before the
+     * front door gets round to this, and a note saying "waiting" must never replace
+     * the answer it was waiting for. The answer, when it comes, simply overwrites it.
+     */
+    public void markPending(Long userId, String requestId, Instant since) {
+        try {
+            redis.opsForValue().setIfAbsent(key(userId, requestId), PENDING + since.toEpochMilli(),
+                    settings.pendingTtl());
+        } catch (Exception e) {
+            log.debug("Could not note the request as pending: {}", e.getMessage());
+        }
     }
 
     private void write(Long userId, String requestId, BookingResult result, Duration ttl) {

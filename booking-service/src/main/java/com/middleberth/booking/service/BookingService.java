@@ -3,6 +3,7 @@ package com.middleberth.booking.service;
 import com.middleberth.booking.domain.Booking;
 import com.middleberth.booking.domain.BookingStatus;
 import com.middleberth.booking.domain.Seat;
+import com.middleberth.booking.cache.CacheSettings;
 import com.middleberth.booking.cache.OutcomeCache;
 import com.middleberth.booking.dto.BookingCommand;
 import com.middleberth.booking.exception.NotOnSaleException;
@@ -17,6 +18,8 @@ import lombok.RequiredArgsConstructor;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.stereotype.Service;
 
+import java.time.Duration;
+import java.time.Instant;
 import java.time.LocalDate;
 import java.util.Optional;
 
@@ -31,6 +34,7 @@ public class BookingService {
     private final WaitlistCounter waitlistCounter;
     private final SeatCountAnnouncer announcer;
     private final OutcomeCache outcomes;
+    private final CacheSettings cacheSettings;
 
     public BookingResult book(BookingCommand cmd) {
         //Find train id from the request
@@ -42,14 +46,18 @@ public class BookingService {
         // both go on to insert — the UNIQUE constraint below is the guarantee.
         Optional<Booking> alreadyDone = bookingRepo.findByUserIdAndRequestId(cmd.userId(), cmd.requestId());
         if (alreadyDone.isPresent()) {
-            return toResult(alreadyDone.get());
+            // Most likely this message was delivered again after the first attempt
+            // committed, so writing its answer to Redis may never have happened.
+            BookingResult done = toResult(alreadyDone.get());
+            leaveAnswerForThePage(cmd, done);
+            return done;
         }
 
         //try to book
         try {
             BookingResult result = bookingTransaction.claimOrWaitlist(cmd, trainId);
             publishSeatCount(cmd, trainId, result);
-            rememberIfRegretted(cmd, result);
+            leaveAnswerForThePage(cmd, result);
             return result;
         } catch (DataIntegrityViolationException duplicate) {
             // Somebody else got there with the same request id. Their row is
@@ -61,6 +69,10 @@ public class BookingService {
     }
 
     /**
+     * The waiting page finds its answer in Redis the moment there is one, and the
+     * "pending" note the front door left is overwritten. Until now a held berth
+     * reached Redis only when a poll had first gone to Postgres for it.
+     *
      * A regret leaves no row, so the only place the waiting page can learn about
      * it is Redis. Kept for much longer than an ordinary cached answer, because it
      * is not a snapshot of something that might change — it is the final word, and
@@ -70,9 +82,11 @@ public class BookingService {
      * gives up. That is survivable: asking again gets an immediate WAITLIST_FULL
      * from the door, which is the same answer by a different route.
      */
-    private void rememberIfRegretted(BookingCommand cmd, BookingResult result) {
+    private void leaveAnswerForThePage(BookingCommand cmd, BookingResult result) {
         if (result.status() == BookingStatus.REGRETTED) {
             outcomes.putRegret(cmd.userId(), cmd.requestId());
+        } else {
+            outcomes.put(cmd.userId(), cmd.requestId(), result);
         }
     }
 
@@ -124,24 +138,63 @@ public class BookingService {
         }
     }
 
+    /** The front door has queued this request, as of now. */
+    public void markPending(Long userId, String requestId) {
+        markPending(userId, requestId, Instant.now());
+    }
+
     /**
-     * What the page polls for. Empty until the consumer has processed it.
-     *
-     * Redis first. A poll that finds nothing there reads Postgres and puts the
-     * answer back, so the next one — a second later, and the one after that —
-     * costs nothing. Postgres is still the truth; this only stops everybody
-     * asking it the same question over and over.
+     * Notes the request as accepted and not decided yet, so polls about it can be
+     * answered without the database until a booking thread writes the answer over
+     * the note. Never replaces an answer that is already there.
      */
-    public Optional<BookingResult> outcomeOf(Long userId, String requestId) {
-        Optional<BookingResult> cached = outcomes.get(userId, requestId);
-        if (cached.isPresent()) {
-            return cached;
+    public void markPending(Long userId, String requestId, Instant acceptedAt) {
+        outcomes.markPending(userId, requestId, acceptedAt);
+    }
+
+    /**
+     * What the page polls for: the answer, or "not yet, ask again in this long".
+     *
+     * Redis first, and for most polls Redis is the whole story:
+     *
+     *   an answer                   the booking thread left it there
+     *   pending, and recent         still in the queue. The answer will land in Redis,
+     *                               so asking Postgres would only find nothing
+     *   pending for longer than     Postgres is asked as well, in case writing the
+     *   pending-trust, or nothing   answer to Redis failed or Redis lost it
+     *
+     * A poll that finds the answer in Postgres puts it back in Redis, so the next
+     * one costs nothing. Postgres is still the truth; this only stops everybody
+     * asking it the same question over and over.
+     *
+     * The longer a booking has waited, the longer the page is told to leave it
+     * before asking again: see PollPacing.
+     */
+    public Poll poll(Long userId, String requestId) {
+        OutcomeCache.Lookup cached = outcomes.lookup(userId, requestId);
+        if (cached instanceof OutcomeCache.Answer answer) {
+            return Poll.answered(answer.result());
+        }
+
+        Duration waited = cached instanceof OutcomeCache.Pending pending
+                ? Duration.between(pending.since(), Instant.now())
+                : null;
+        if (waited != null && waited.compareTo(cacheSettings.pendingTrust()) < 0) {
+            return Poll.pending(PollPacing.after(waited));
         }
 
         Optional<BookingResult> found = bookingRepo.findByUserIdAndRequestId(userId, requestId)
                 .map(this::toResult);
-        found.ifPresent(result -> outcomes.put(userId, requestId, result));
-        return found;
+        if (found.isPresent()) {
+            outcomes.put(userId, requestId, found.get());
+            return Poll.answered(found.get());
+        }
+        return Poll.pending(waited == null ? PollPacing.forUnknownWait() : PollPacing.after(waited));
+    }
+
+    /** The answer alone, if there is one yet. */
+    public Optional<BookingResult> outcomeOf(Long userId, String requestId) {
+        return Optional.ofNullable(poll(userId, requestId).result());
     }
 
     //changes the seat number 42 -> 32-B like a user friendly manner

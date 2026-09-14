@@ -204,16 +204,22 @@ export default function () {
     check(accepted, { 'booking answered (202 or 409)': r => r.status === 202 || r.status === 409 });
     if (accepted.status !== 202) return;
 
-    // The page polls, exactly like a real one would.
+    // The page polls, exactly like a real one would, and waits as long as the
+    // server says between asks. The server makes that longer the longer the booking
+    // has waited, so a page stuck in a queue asks every few seconds rather than twice
+    // a second. POLL_INTERVAL is only the first wait, and the wait when there is no hint.
     let status = null;
+    let wait = POLL_INTERVAL;
     for (let i = 0; i < 30; i++) {
-        sleep(POLL_INTERVAL);
+        sleep(wait);
         const res = http.get(`${BASE}/api/bookings/${requestId}`,
             { headers: auth, tags: { name: 'poll' } });
         if (res.status === 429) { rateLimited.add(1); continue; }
         if (res.status !== 200) continue;
         status = res.json('status');
         if (status && status !== 'PENDING') break;
+        const hinted = res.json('retryAfterMs');
+        wait = hinted ? hinted / 1000 : POLL_INTERVAL;
     }
 
     const waited = Date.now() - started;
