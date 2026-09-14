@@ -1,7 +1,8 @@
 # MiddleBerth
 
-A tatkal train-booking backend, built to prove one thing under load: **no berth is ever
-given to two people.**
+A tatkal train-booking backend built as **five Spring Boot microservices** around Kafka,
+PostgreSQL and Redis, to prove one thing under load: **no berth is ever given to two
+people.**
 
 Indian Railways opens a small quota of seats at 10:00 AM the day before travel, and
 lakhs of people click in the same second. MiddleBerth is named after the worst berth
@@ -40,6 +41,20 @@ about two seconds.
 
 Every load run ends by checking the database itself: no berth held by two people, no
 berth marked taken with nobody holding it, no waitlist number handed out twice.
+
+**For scale.** Indian Railways' reservation system handles
+[about 32,000 tickets a minute](https://www.pib.gov.in/PressReleasePage.aspx?PRID=2140614&reg=48&lang=2),
+roughly 530 a second. IRCTC's record is
+[37,410 tickets in one minute](https://www.newkerala.com/news/a/irctc-sets-new-records-online-ticket-booking-blocks-942.htm),
+at 10:02 AM on 16 August 2025, and the reservation system replacing today's is designed
+for over 1.5 lakh a minute. MiddleBerth held **1,000 berths a second, 60,000 a minute, on one laptop.**
+
+That is not a like-for-like comparison, and not a claim to be faster than IRCTC. Their
+count is paid tickets from real people through real banks, across the whole railway and
+alongside lakhs of enquiries a minute. This one is berths held with payment stubbed and
+k6 playing the passengers. What it does show is that the heart of the problem, taking a
+flood of requests and handing out berths without ever giving one to two people, keeps
+pace with more than IRCTC's record rate on a single machine.
 
 ## What measuring it found
 
@@ -107,6 +122,39 @@ cache and the answers waiting pages poll for.
    that is released goes to the next paid waitlister inside the same transaction.
 5. **Cancel.** The fare is refunded. The 3% convenience fee is what covers Razorpay's
    2.36% cut, which Razorpay never gives back.
+
+## Why microservices
+
+Five services, each with its own database, each built, deployed and scaled on its own.
+They talk over HTTP where the answer is instant and over Kafka everywhere else. The only
+call between services that anybody waits on is booking asking payment for an order.
+
+| service | owns |
+|---|---|
+| gateway | login, tokens, per-user rate limits, routing; the only way in |
+| search-service | trains and availability, read-heavy, answered from Redis |
+| booking-service | intake, berth claiming, holds, the waitlist, a booking's whole life |
+| payment-service | Razorpay orders, signed webhooks, refunds, reconciliation |
+| notification-service | mail |
+
+Where the lines are drawn, and why:
+
+- **Search and booking are apart** because their loads are opposite. Browsing is reads
+  that must stay fast while booking is on fire; booking is writes and row locks. They
+  need different amounts of machine, and neither shares threads or a database with the
+  other.
+- **Payment is apart** so payment keys, webhook signatures and refunds never live in the
+  service that holds berths.
+- **Mail is apart** so a slow or broken mail server can never hold up a booking.
+- **Berths stay inside booking-service,** so locking a berth is never a network call at
+  the busiest moment of the day. booking-service owns the whole process too, so "what
+  happened to booking 1234?" is one query, not a story spread across three services.
+- **No user service, config server or service registry.** Login lives at the gateway,
+  and Docker Compose and Kubernetes already name and find the services.
+
+Honestly, at this project's traffic one Spring Boot application could do the job, and
+microservices mostly exist so that separate teams can deploy separately. The split here
+follows the load and the risk, not a checklist.
 
 ## Run it
 
@@ -228,5 +276,5 @@ loadtest/              k6: spike, steady rate, ladder
 k8s/                   kind cluster, manifests, autoscaler
 ```
 
-Java 21 · Spring Boot 3.5 · Spring Cloud Gateway · Kafka 3.8 · PostgreSQL 16 · Redis 7 ·
-nginx · k6 · Testcontainers · Docker Compose · Kubernetes
+Java 21 · Spring Boot 3.5 · Microservices · Spring Cloud Gateway · Kafka 3.8 ·
+PostgreSQL 16 · Redis 7 · nginx · k6 · Testcontainers · Docker Compose · Kubernetes
