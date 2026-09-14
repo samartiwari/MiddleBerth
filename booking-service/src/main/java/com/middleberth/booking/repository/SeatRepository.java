@@ -44,13 +44,6 @@ public interface SeatRepository extends JpaRepository<Seat, Long> {
                                  @Param("coachClass") String coachClass);
 
     /**
-     * How many berths are still free. Published to search-service after every
-     * claim so the availability page never has to ask this database itself.
-     *
-     * Hits idx_seat_lookup (train_id, travel_date, coach_class, status) exactly,
-     * so it counts index entries and never touches the table.
-     */
-    /**
      * Every count in one query, for the snapshot that search-service starts from.
      *
      * Grouped in the database rather than by asking per train: one statement
@@ -74,12 +67,19 @@ public interface SeatRepository extends JpaRepository<Seat, Long> {
      * queued, so a date nobody has opened yet gets a straight answer instead of
      * travelling through Kafka to come back as "sorry, full".
      *
-     * EXISTS rather than a count: it stops at the first row, and the index on
-     * (train_id, travel_date, coach_class, status) covers it.
+     * EXISTS rather than a count: it stops at the first row, and the first three
+     * columns of idx_seat_claim cover it.
      */
     boolean existsByTrainIdAndTravelDateAndCoachClass(Long trainId, LocalDate travelDate,
                                                       String coachClass);
 
+    /**
+     * How many berths are still free. Published to search-service after every
+     * claim so the availability page never has to ask this database itself.
+     *
+     * Hits the first four columns of idx_seat_claim (train_id, travel_date,
+     * coach_class, status, id) exactly, so it counts index entries.
+     */
     int countByTrainIdAndTravelDateAndCoachClassAndStatus(Long trainId,
                                                           LocalDate travelDate,
                                                           String coachClass,
