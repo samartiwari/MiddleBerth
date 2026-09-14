@@ -10,8 +10,11 @@ on the train: the one you get when you lose that race.
 
 [![tests](https://github.com/samartiwari/MiddleBerth/actions/workflows/tests.yml/badge.svg)](https://github.com/samartiwari/MiddleBerth/actions/workflows/tests.yml)
 
-**Live demo:** _link coming soon_. It runs on a small 2 vCPU server for trying it out,
-and is not where the numbers below come from.
+**Live demo:** [middleberth.samartiwari.me](https://middleberth.samartiwari.me). Sign up,
+book a real berth, pay with a Razorpay test card, and watch every API call the page makes
+([frontend code](https://github.com/samartiwari/MiddleBerth-Frontend)). The API behind it is
+`api.middleberth.samartiwari.me`, on a small 2 vCPU server for trying it out, which is not
+where the numbers below come from.
 
 ---
 
