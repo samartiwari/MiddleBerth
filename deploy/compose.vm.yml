@@ -1,0 +1,52 @@
+# The server's differences from the laptop, layered over docker-compose.yml:
+#
+#   docker compose -f docker-compose.yml -f deploy/compose.vm.yml up -d --build
+#
+# deploy/setup-server.sh runs exactly that. Everything not mentioned here is the
+# same system the laptop runs and CI starts.
+#
+# Memory caps: a Java service is otherwise allowed to grow its heap to a quarter of
+# the machine. On the laptop after a load test the gateway alone sat at 2.5 GB, and
+# five services each reaching for a quarter of a 12 GB server is a container killed
+# for memory. Capped like this the whole stack fits in about 5 GB.
+
+services:
+
+  gateway:
+    environment:
+      # With demo tokens on, /auth/token hands out a token for any user id with no
+      # password, which makes every other protection pointless. The laptop needs
+      # them for two thousand load-test users; a public server must never have them.
+      AUTH_DEMO_TOKENS: "false"
+      JAVA_TOOL_OPTIONS: "-Dnetworkaddress.cache.ttl=5 -Xmx512m"
+
+  booking-service:
+    environment:
+      JAVA_TOOL_OPTIONS: "-Dnetworkaddress.cache.ttl=5 -Xmx768m"
+
+  search-service:
+    environment:
+      JAVA_TOOL_OPTIONS: "-Dnetworkaddress.cache.ttl=5 -Xmx384m"
+
+  payment-service:
+    environment:
+      JAVA_TOOL_OPTIONS: "-Dnetworkaddress.cache.ttl=5 -Xmx384m"
+
+  notification-service:
+    environment:
+      JAVA_TOOL_OPTIONS: "-Dnetworkaddress.cache.ttl=5 -Xmx384m"
+
+  kafka:
+    environment:
+      KAFKA_HEAP_OPTS: "-Xms512m -Xmx512m"
+
+  # HTTPS. The laptop's plain-HTTP config is replaced, not added to, and the domain
+  # comes from .env: the nginx image fills ${DOMAIN} into the template on start.
+  nginx:
+    ports:
+      - "443:443"
+    environment:
+      DOMAIN: ${DOMAIN:?set DOMAIN in .env}
+    volumes: !override
+      - ./deploy/nginx-vm.conf.template:/etc/nginx/templates/default.conf.template:ro
+      - /etc/letsencrypt:/etc/letsencrypt:ro

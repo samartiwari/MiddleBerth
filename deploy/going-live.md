@@ -63,10 +63,10 @@ traffic there is always a balance and this never comes up.
 
     MAIL_MODE=smtp
     MAIL_FROM=you@example.com
-    SPRING_MAIL_HOST=smtp.gmail.com
-    SPRING_MAIL_PORT=587
-    SPRING_MAIL_USERNAME=...
-    SPRING_MAIL_PASSWORD=...        # a Gmail app password needs 2FA on the account
+    MAIL_HOST=smtp.gmail.com
+    MAIL_PORT=587
+    MAIL_USERNAME=...
+    MAIL_PASSWORD=...               # a Gmail app password needs 2FA on the account
 
 A free Gmail account sends about **100 mails a day over SMTP**, on a rolling 24
 hours, and blocks sending for up to a day if you go over. Fine for a demo,
@@ -74,14 +74,24 @@ useless for a load test — which is why the default is to log instead of send.
 
 Use a throwaway account. Automated mail from a personal one gets it flagged.
 
-## 3. HTTPS
+## 3. The server and HTTPS
 
 Razorpay will not post a webhook to plain HTTP, so the webhook needs a public
-HTTPS address. See `nginx-tls.conf.example`; a free DuckDNS subdomain and certbot
-are enough.
+HTTPS address. Without it the system still works — a payment is picked up by the
+reconciliation job instead of the webhook — but minutes later rather than seconds.
 
-Without it the system still works — a payment is picked up by the reconciliation
-job instead of the webhook — but minutes later rather than seconds.
+Three files set up a server, and none of them change the laptop setup:
+
+- `deploy/setup-server.sh` takes a fresh Ubuntu 24.04 server to MiddleBerth over
+  HTTPS: firewall, Docker, the code, a Let's Encrypt certificate that renews on its
+  own, then build and start. Safe to run again; every step skips itself when done.
+- `deploy/compose.vm.yml` is layered over `docker-compose.yml`: demo tokens off,
+  a memory cap on each Java service, nginx on 443.
+- `deploy/nginx-vm.conf.template` is the HTTPS front door. The domain is filled in
+  from `.env` when nginx starts, so it is not written into the repository.
+
+Any domain works, as long as an A record points it at the server before the script
+asks Let's Encrypt for a certificate.
 
 ## 4. Accounts
 
@@ -104,6 +114,9 @@ account is locked for fifteen minutes. Signups are capped per IP address.
                               # token for any user.
     POSTGRES_PASSWORD=...
 
+`deploy/env.vm.example` lists every value the server needs, and the setup script
+refuses to start with any of them missing or left at the laptop's defaults.
+
 Keep all of it in the VM's environment or a Kubernetes Secret. Never in the
 repository, and never in a chat message.
 
@@ -112,7 +125,4 @@ repository, and never in a chat message.
 - **No password reset.** Forgetting a password means losing the account. The mail
   pipeline is there, so it is a small addition, but it is not built.
 - **No email verification.** You can sign up with an address you do not own.
-- **No PNR.** The booking reference is the request id.
-- **No cancellation by the passenger.** Refunds happen automatically when a
-  payment cannot be honoured.
-- **Five hardcoded trains**, and no routes, stations or schedules.
+- **A few seeded trains**, and no routes, stations or schedules.

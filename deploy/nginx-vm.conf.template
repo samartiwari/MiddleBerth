@@ -1,0 +1,62 @@
+# The front door on the server: HTTPS for the domain in .env, and port 80 only
+# redirects to it.
+#
+# A template, not a finished file. When the nginx container starts it writes this
+# out with DOMAIN filled in from the environment. Only variables that exist in the
+# environment are replaced, so nginx's own ($host, $request_uri) are left alone.
+#
+# The same rules as deploy/nginx.conf on the laptop, plus TLS.
+
+log_format timing '$time_iso8601 $request_method $uri $status '
+                  'total=$request_time upstream_connect=$upstream_connect_time '
+                  'upstream_header=$upstream_header_time';
+
+# Reused connections to the gateway, enough for every request in flight: past this
+# number nginx opens and closes extra connections, each holding a local port for a
+# minute, and under load it runs out of ports and answers 502.
+upstream gateway {
+    server gateway:8000;
+    keepalive 1024;
+    keepalive_requests 10000;
+    keepalive_timeout 60s;
+}
+
+server {
+    listen 80;
+    server_name ${DOMAIN};
+    return 301 https://$host$request_uri;
+}
+
+server {
+    listen 443 ssl;
+    http2 on;
+    server_name ${DOMAIN};
+
+    ssl_certificate     /etc/letsencrypt/live/${DOMAIN}/fullchain.pem;
+    ssl_certificate_key /etc/letsencrypt/live/${DOMAIN}/privkey.pem;
+    ssl_protocols       TLSv1.2 TLSv1.3;
+    ssl_session_cache   shared:SSL:10m;
+
+    access_log /var/log/nginx/access.log timing;
+
+    # Not nginx's job to decide who may book: the gateway does that, and it needs to
+    # see the request exactly as sent. The Razorpay webhook body in particular must
+    # arrive byte for byte, or its signature will not match.
+    location / {
+        proxy_pass http://gateway;
+
+        # Both needed for the reuse above: HTTP/1.1, and no "Connection: close".
+        proxy_http_version 1.1;
+        proxy_set_header Connection "";
+        proxy_set_header Host              $host;
+        proxy_set_header X-Real-IP         $remote_addr;
+        proxy_set_header X-Forwarded-For   $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+
+        # Nobody from outside gets to claim they are a user.
+        proxy_set_header X-User-Id "";
+
+        proxy_connect_timeout 2s;
+        proxy_read_timeout    30s;
+    }
+}
