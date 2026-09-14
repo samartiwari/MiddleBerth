@@ -272,6 +272,9 @@ services:
       # BCrypt takes a tenth of a second each. OFF anywhere real — with this on,
       # anybody can be anybody. See deploy/going-live.md.
       AUTH_DEMO_TOKENS: ${AUTH_DEMO_TOKENS:-true}
+      # Web pages on other addresses that may call the API, comma-separated.
+      # Empty means none; a frontend served from its own address needs to be listed.
+      CORS_ALLOWED_ORIGINS: ${CORS_ALLOWED_ORIGINS:-}
     healthcheck:
       test: ["CMD-SHELL", "wget -qO- http://localhost:8000/actuator/health | grep -q UP"]
       interval: 10s

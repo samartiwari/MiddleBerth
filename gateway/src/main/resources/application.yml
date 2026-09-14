@@ -22,6 +22,11 @@ middleberth:
     max-signups-per-ip: 10
     signup-window: PT1H
 
+  cors:
+    # Web pages on other addresses allowed to call this API from a browser, as a
+    # comma-separated list like https://app.example.com. Empty means none.
+    allowed-origins: ${CORS_ALLOWED_ORIGINS:}
+
   jwt:
     # HS256 needs at least 32 bytes. The default is for dev and tests ONLY —
     # anywhere real, JWT_SECRET must be set, or anyone can mint tokens.

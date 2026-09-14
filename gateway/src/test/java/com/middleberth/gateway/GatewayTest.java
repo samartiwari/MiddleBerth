@@ -39,7 +39,8 @@ import static org.springframework.http.MediaType.APPLICATION_JSON;
 // logging in. Signing up two dozen accounts with BCrypt to test a route would
 // only make them slow. Logging in for real is AuthTest's job.
 @SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT,
-                properties = "middleberth.auth.demo-tokens=true")
+                properties = {"middleberth.auth.demo-tokens=true",
+                              "middleberth.cors.allowed-origins=" + GatewayTest.PAGE})
 @AutoConfigureWebTestClient
 class GatewayTest {
 
@@ -191,6 +192,57 @@ class GatewayTest {
 
         assertThat(post(alice)).as("alice is over her limit").isEqualTo(HttpStatus.TOO_MANY_REQUESTS);
         assertThat(post(bob).is2xxSuccessful()).as("bob, same IP, is unaffected").isTrue();
+    }
+
+    // ---------- a page on another address ----------
+
+    /** The showcase frontend's address, which these tests' own settings allow. */
+    static final String PAGE = "https://demo.middleberth.test";
+
+    // Written out in full, because this test client hands requests straight to the
+    // app with no server in between, and a bare path has no host. Spring cannot
+    // compare the page's address with a request that has none of its own, so it
+    // refuses it as malformed. A browser's request always names the host it went to.
+    static final String GATEWAY = "http://localhost";
+
+    /**
+     * The frontend is served from a different address, so before it may send a
+     * booking with its token the browser asks first, with an OPTIONS request that
+     * carries no token at all. Unless the gateway answers that itself and names the
+     * page, the browser blocks every call the page makes: the security rules alone
+     * would refuse the question with a 401.
+     */
+    @Test
+    void a_page_on_the_allowed_address_may_ask_before_it_books() {
+        web.options().uri(GATEWAY + "/api/bookings")
+           .header("Origin", PAGE)
+           .header("Access-Control-Request-Method", "POST")
+           .header("Access-Control-Request-Headers", "authorization,content-type")
+           .exchange()
+           .expectStatus().isOk()
+           .expectHeader().valueEquals("Access-Control-Allow-Origin", PAGE);
+
+        assertThat(BOOKING.seen()).as("answered by the gateway, never forwarded").isEmpty();
+    }
+
+    /** Any other site gets no permission, so its pages cannot read answers from a visitor's browser. */
+    @Test
+    void a_page_on_any_other_address_is_refused() {
+        web.options().uri(GATEWAY + "/api/bookings")
+           .header("Origin", "https://somewhere-else.example")
+           .header("Access-Control-Request-Method", "POST")
+           .exchange()
+           .expectStatus().isForbidden()
+           .expectHeader().doesNotExist("Access-Control-Allow-Origin");
+    }
+
+    /** The real answer must carry the header too, or the browser hides it from the page. */
+    @Test
+    void the_allowed_page_can_read_the_answers() {
+        web.get().uri(GATEWAY + "/api/trains").header("Origin", PAGE)
+           .exchange()
+           .expectStatus().isOk()
+           .expectHeader().valueEquals("Access-Control-Allow-Origin", PAGE);
     }
 
     // ---------- no sessions ----------

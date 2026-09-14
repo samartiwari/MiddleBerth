@@ -1,5 +1,9 @@
 package com.middleberth.gateway.config;
 
+import java.time.Duration;
+import java.util.List;
+
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.security.config.Customizer;
@@ -8,6 +12,9 @@ import org.springframework.security.config.web.server.ServerHttpSecurity;
 import org.springframework.security.web.server.SecurityWebFilterChain;
 import org.springframework.security.web.server.context.NoOpServerSecurityContextRepository;
 import org.springframework.security.web.server.savedrequest.NoOpServerRequestCache;
+import org.springframework.web.cors.CorsConfiguration;
+import org.springframework.web.cors.reactive.CorsConfigurationSource;
+import org.springframework.web.cors.reactive.UrlBasedCorsConfigurationSource;
 
 /**
  * Who may call what.
@@ -25,6 +32,9 @@ public class SecurityConfig {
                 // A token API with no cookies and no browser session — CSRF protects
                 // cookie-based sessions, which this does not have.
                 .csrf(ServerHttpSecurity.CsrfSpec::disable)
+                // Before the rules below, so the browser's "may I?" question, which
+                // carries no token, is answered here instead of refused with a 401.
+                .cors(Customizer.withDefaults())
                 // And no sessions at all. Spring Security's defaults are for a website:
                 // keep who is logged in inside a session, and remember the page you
                 // wanted so logging in can send you back to it. Here every request
@@ -44,5 +54,31 @@ public class SecurityConfig {
                         .anyExchange().denyAll())
                 .oauth2ResourceServer(o -> o.jwt(Customizer.withDefaults()))
                 .build();
+    }
+
+    /**
+     * Which web pages on other addresses may call this API from a browser.
+     *
+     * A browser will not let a page read an answer from another address unless
+     * that address names the page. Only the listed pages are named; every other
+     * site is refused, so it cannot use a visitor's browser to call this. Empty
+     * means none, which is right for anything with no frontend of its own.
+     *
+     * No cookies are allowed through: the token travels in a header the page
+     * sets itself, so another site has nothing to borrow.
+     */
+    @Bean
+    CorsConfigurationSource corsConfigurationSource(
+            @Value("${middleberth.cors.allowed-origins:}") List<String> allowedOrigins) {
+        CorsConfiguration cors = new CorsConfiguration();
+        cors.setAllowedOrigins(allowedOrigins.stream().map(String::trim).filter(o -> !o.isEmpty()).toList());
+        cors.setAllowedMethods(List.of("GET", "POST"));
+        cors.setAllowedHeaders(List.of("Authorization", "Content-Type"));
+        // The browser may reuse the permission for an hour instead of asking before every call.
+        cors.setMaxAge(Duration.ofHours(1));
+
+        UrlBasedCorsConfigurationSource source = new UrlBasedCorsConfigurationSource();
+        source.registerCorsConfiguration("/**", cors);
+        return source;
     }
 }
