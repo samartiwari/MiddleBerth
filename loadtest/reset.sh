@@ -13,5 +13,10 @@ else
     psql_booking() { docker compose exec -T booking-db psql -U middleberth -d booking -q "$@"; }
 fi
 
+# Which berths. The default is the spike's: five trains, 480 berths, gone in a
+# second. loadtest/steady.sh uses SEED=deploy/seed-throughput.sql, 300 trains that
+# a minute of steady booking cannot run out of.
+SEED="${SEED:-deploy/seed-load.sql}"
+
 psql_booking -c "TRUNCATE booking, seat, quota_counter, outbox, train, train_quota CASCADE;"
-psql_booking -f - < deploy/seed-load.sql
+psql_booking -f - < "$SEED"

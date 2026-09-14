@@ -95,7 +95,17 @@ if [ -n "${METRICS_DIR:-}" ]; then
     K6_OUT=(--out "csv=/out/metrics-$USERS.csv.gz")
 fi
 
-echo "== $USERS users, all at once, travel date $DATE, browsing ${BROWSE:-1}"
+# SHAPE=steady RATE=1000 DURATION=60s: people keep arriving at a fixed rate rather
+# than all at once. loadtest/steady.sh runs it at several rates; [users] is ignored.
+if [ "${SHAPE:-spike}" = steady ]; then
+    echo "== steady: ${RATE:-500} people a second for ${DURATION:-60s}, ${TRAIN_COUNT:-300} trains, travel date $DATE"
+    # One file per rate, so a series of rates does not overwrite itself.
+    if [ -n "${METRICS_DIR:-}" ]; then
+        K6_OUT=(--out "csv=/out/metrics-steady-${RATE:-500}.csv.gz")
+    fi
+else
+    echo "== $USERS users, all at once, travel date $DATE, browsing ${BROWSE:-1}"
+fi
 K6_EXIT=0
 docker run --rm -i --network "$K6_NET" \
     -v "$PWD/loadtest:/loadtest:ro" \
@@ -104,7 +114,12 @@ docker run --rm -i --network "$K6_NET" \
     -e TRAVEL_DATE="$DATE" \
     -e VUS="$USERS" \
     -e BROWSE="${BROWSE:-1}" \
-    -e PAY_PERCENT="${PAY_PERCENT:-50}" \
+    -e SHAPE="${SHAPE:-spike}" \
+    -e RATE="${RATE:-500}" \
+    -e DURATION="${DURATION:-60s}" \
+    -e TRAIN_COUNT="${TRAIN_COUNT:-300}" \
+    -e MAX_VUS="${MAX_VUS:-6000}" \
+    -e PAY_PERCENT="${PAY_PERCENT:-}" \
     -e RAZORPAY_WEBHOOK_SECRET="${RAZORPAY_WEBHOOK_SECRET:-dev-only-webhook-secret-not-for-real-use}" \
     -e POLL_INTERVAL="${POLL_INTERVAL:-0.5}" \
     -e RUN_ID="$(date +%H%M%S)" \

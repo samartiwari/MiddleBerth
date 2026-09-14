@@ -14,6 +14,7 @@
 
 import http from 'k6/http';
 import crypto from 'k6/crypto';
+import exec from 'k6/execution';
 import { check, sleep } from 'k6';
 import { Trend, Counter, Rate } from 'k6/metrics';
 
@@ -21,9 +22,31 @@ const BASE = __ENV.BASE_URL || 'http://nginx:80';
 const DATE = __ENV.TRAVEL_DATE;
 const WEBHOOK_SECRET = __ENV.RAZORPAY_WEBHOOK_SECRET || 'dev-only-webhook-secret-not-for-real-use';
 const VUS = Number(__ENV.VUS || 1000);
-const PAY_PERCENT = Number(__ENV.PAY_PERCENT || 50);
 
-const TRAINS = (__ENV.TRAINS || '12951,12009,22691,12259,12627').split(',');
+// SHAPE=steady: instead of everybody at once, people keep arriving at RATE a
+// second for DURATION. The spike is over in two seconds, which is too short to
+// tell a system that keeps up from one quietly building a queue. See
+// loadtest/steady.sh.
+const STEADY = (__ENV.SHAPE || 'spike') === 'steady';
+const RATE = Number(__ENV.RATE || 500);
+const DURATION = __ENV.DURATION || '60s';
+// Enough virtual users to hold every attempt still waiting for its answer. When
+// they run out, k6 counts the attempts it could not start as dropped_iterations —
+// which is itself a sign the answers are not coming back fast enough.
+const MAX_VUS = Number(__ENV.MAX_VUS || 6000);
+
+// Paying is a different journey, and it keeps a virtual user busy for about ten
+// more seconds. The steady test is about booking, so by default nobody pays in it.
+const PAY_PERCENT = Number(__ENV.PAY_PERCENT || (STEADY ? 0 : 50));
+
+// The steady test's trains are the 300 in deploy/seed-throughput.sql, numbered
+// 90001 to 90300. The spike keeps its five.
+const TRAIN_COUNT = Number(__ENV.TRAIN_COUNT || 300);
+const TRAINS = __ENV.TRAINS
+    ? __ENV.TRAINS.split(',')
+    : STEADY
+        ? Array.from({ length: TRAIN_COUNT }, (_, i) => String(90001 + i))
+        : ['12951', '12009', '22691', '12259', '12627'];
 // Unique per run. Reusing request ids across runs is not a bug in the system —
 // the UNIQUE constraint correctly hands back the booking that id already made,
 // which in the second run was somebody's confirmed ticket from the first.
@@ -57,15 +80,28 @@ const decided = new Rate('decided_within_15s');
 // system is, which made a third of the old request count the test's own setting.
 const BROWSE = (__ENV.BROWSE || '1') !== '0';
 
-const scenarios = {
+const scenarios = {};
+
+if (STEADY) {
+    // People keep arriving at the same rate whatever the system is doing, and each
+    // attempt is a different person, exactly as in the spike.
+    scenarios.steady = {
+        executor: 'constant-arrival-rate',
+        rate: RATE,
+        timeUnit: '1s',
+        duration: DURATION,
+        preAllocatedVUs: Math.min(RATE * 2, MAX_VUS),
+        maxVUs: MAX_VUS,
+    };
+} else {
     // The spike. Every user starts at once and books exactly once.
-    tatkal: {
+    scenarios.tatkal = {
         executor: 'per-vu-iterations',
         vus: VUS,
         iterations: 1,
         maxDuration: '3m',
-    },
-};
+    };
+}
 
 if (BROWSE) {
     // Meanwhile, people are browsing. Search must stay fast while booking is
@@ -119,14 +155,25 @@ function login(userId) {
 }
 
 export default function () {
-    const userId = 100000 + __VU;
+    // Who this is. In the spike each virtual user is one person. In the steady test
+    // a virtual user is reused for attempt after attempt, so the attempt's own
+    // number has to be the person: the virtual user's would repeat request ids,
+    // which the database rightly answers as duplicates, and pile every attempt onto
+    // one user's rate limit.
+    const person = STEADY ? exec.scenario.iterationInTest + 1 : __VU;
+    const userId = 100000 + person;
     const token = login(userId);
     if (!token) return;
 
     const auth = { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' };
-    const train = TRAINS[__VU % TRAINS.length];
-    const coachClass = CLASSES[__VU % CLASSES.length];
-    const requestId = `K6-${RUN}-${__VU}`;
+    const train = TRAINS[person % TRAINS.length];
+    // With 300 trains, "person % 2" would tie the class to the train: even people,
+    // even trains, always 3A. So the steady test switches class each time it has
+    // gone round every train, and all 600 train-and-class pairs get their share.
+    const coachClass = STEADY
+        ? CLASSES[Math.floor(person / TRAINS.length) % CLASSES.length]
+        : CLASSES[person % CLASSES.length];
+    const requestId = `K6-${RUN}-${person}`;
 
     const started = Date.now();
     const accepted = http.post(`${BASE}/api/bookings`, JSON.stringify({
@@ -134,8 +181,8 @@ export default function () {
         // Every ticket is for somebody. Typed in by the client, so the booking
         // path never looks a passenger up.
         passenger: {
-            name: `Passenger ${__VU}`,
-            email: `passenger${__VU}@example.invalid`,
+            name: `Passenger ${person}`,
+            email: `passenger${person}@example.invalid`,
             phone: '9876543210',
         },
     }), { headers: auth, tags: { name: 'book' } });
@@ -175,7 +222,7 @@ export default function () {
     if (status === 'HELD' || status === 'WAITLIST_HELD') {
         decisionTime.add(waited);
         status === 'HELD' ? heldCount.add(1) : waitlistedCount.add(1);
-        if (__VU % 100 < PAY_PERCENT) {
+        if (person % 100 < PAY_PERCENT) {
             pay(requestId, auth, token);
         }
     } else if (status === 'WAITLISTED') {
