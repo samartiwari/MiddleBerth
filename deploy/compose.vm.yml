@@ -50,3 +50,6 @@ services:
     volumes: !override
       - ./deploy/nginx-vm.conf.template:/etc/nginx/templates/default.conf.template:ro
       - /etc/letsencrypt:/etc/letsencrypt:ro
+      # Other sites this server hosts, one finished server block per file, each with
+      # its own certificate. Empty means none: MiddleBerth needs nothing from it.
+      - /srv/nginx-sites:/etc/nginx/sites:ro

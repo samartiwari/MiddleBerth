@@ -66,3 +66,7 @@ server {
         proxy_read_timeout    30s;
     }
 }
+
+# Other sites on this server (see compose.vm.yml), included last so a request for an
+# unknown name still lands on MiddleBerth above. No files there is fine.
+include /etc/nginx/sites/*.conf;
